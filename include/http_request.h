@@ -74,11 +74,14 @@ struct Request {
     // Content-type helper
     bool is_multipart_form_data() const;
 
+    // Add some new methods?
+    std::string to_string() const;
+
 private:
     size_t content_length_ = 0;
     std::chrono::time_point<std::chrono::steady_clock> start_time;
 
-    // Do we need content provider
+    // Do we need content provider?
 };
 
 
