@@ -37,7 +37,6 @@ struct Request {
     std::string target; // include path + query params
     // Ranges ranges // parse ranges in headers: bytes=0-99
     // MultipartFormData form; // parses the files in forms or when uploading
-    // std::smatch matches; // use regex in routing?
     // A callback to check client connection status
     // std::function<bool()> is_connection_closed = []() { return true; };
     // std::unordered_map<std::string, std::string> path_params; vars in routing?
@@ -60,10 +59,6 @@ struct Request {
     // Do we use middleware to annotate Request?
     // void set_header(const std::string &key, const std::string &val);
 
-    // Do we use trailers?
-    // bool has_trailer(const std::string &key) const;
-    // std::string get_trailer_value(const std::string &key, size_t id = 0) const;
-    // size_t get_trailer_value_count(const std::string &key) const;
 
     // Query/Form params API
     bool has_param(const std::string &key) const;
