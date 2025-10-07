@@ -3,7 +3,10 @@ project(websocketlib)
 
 set (CMAKE_CXX_STANDARD 20)
 
-add_executable(${CMAKE_PROJECT_NAME} main.cpp)
+add_executable(${CMAKE_PROJECT_NAME} main.cpp
+        src/http_request.cpp
+        include/status_codes.h
+        src/http_response.cpp)
 
 include_directories(${CMAKE_PROJECT_NAME} include)
 

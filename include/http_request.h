@@ -17,54 +17,31 @@ using Params = std::multimap<std::string, std::string>;
 struct Request {
     std::string method;
     std::string path; // normalized path e.g. /search
-    // std::string matched_route; // use regex in routing?
-    Headers headers;
-    Params params; // store query parameters
-    // Headers trailers; // additional headers, like Digest or Checksum
-    // used for example, after uploading a big body
+    std::string version; // how to parse the response
+    std::string target; // include path + query params
 
+
+    Headers headers;
+    Params query_params; // store query parameters
     std::string body;
 
     // Server ip and port that accepts the connection
     std::string local_addr;
     int local_port = -1;
+    std::string remote_addr; // client ip
+    int remote_port = -1; // client port
 
-    // std::string remote_addr; // client ip
-    // int remote_port = -1; // client port
-
-    // for server
-    std::string version; // how to parse the response
-    std::string target; // include path + query params
-    // Ranges ranges // parse ranges in headers: bytes=0-99
-    // MultipartFormData form; // parses the files in forms or when uploading
-    // A callback to check client connection status
-    // std::function<bool()> is_connection_closed = []() { return true; };
-    // std::unordered_map<std::string, std::string> path_params; vars in routing?
-
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-    const SSL *ssl = nullptr;
-#endif
-
+    size_t content_length = 0;
+    std::string content_type;
 
     // Headers API
     bool has_header(const std::string &key) const;
     std::string get_header_value(const std::string &key, const char *def = "",
                                size_t id = 0) const;
 
-    size_t get_header_value_u64(const std::string &key, size_t def = 0,
-                              size_t id = 0) const;
-
-    size_t get_header_value_count(const std::string &key) const;
-
-    // Do we use middleware to annotate Request?
-    // void set_header(const std::string &key, const std::string &val);
-
-
-    // Query/Form params API
     bool has_param(const std::string &key) const;
     std::string get_param_value(const std::string &key, size_t id = 0) const;
     size_t get_param_value_count(const std::string &key) const;
-
 
     // Content-type helper
     bool is_multipart_form_data() const;
@@ -76,7 +53,6 @@ private:
     size_t content_length_ = 0;
     std::chrono::time_point<std::chrono::steady_clock> start_time;
 
-    // Do we need content provider?
 };
 
 
