@@ -15,7 +15,7 @@ using Params = std::multimap<std::string, std::string>;
 
 
 struct Request {
-    std::string method;
+    std::string method;  // TODO: make enum of methods
     std::string path; // normalized path e.g. /search
     std::string version; // how to parse the response
     std::string target; // include path + query params
@@ -29,7 +29,7 @@ struct Request {
     std::string local_addr;
     int local_port = -1;
     std::string remote_addr; // client ip
-    int remote_port = -1; // client port
+    int remote_port = -1; // client port // TODO: check if this is important
 
     size_t content_length = 0;
     std::string content_type;

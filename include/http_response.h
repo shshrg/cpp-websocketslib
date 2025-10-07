@@ -31,6 +31,7 @@ struct Response {
     static Response text(std::string s, int status, std::string_view charset="utf-8");
     static Response json(std::string s, int status);
     static Response html(std::string s, int status);
+    // TODO: add not_found, bad_request, serve_static (host static files, for example Frontend), file (download a file)
 
     std::string to_string() const;
 
