@@ -1,0 +1,36 @@
+# --- IDE files ---
+.idea/
+*.iml
+
+# --- Build directories ---
+build/
+cmake-build-debug/
+cmake-build-release/
+cmake-build-*/
+
+# --- CMake intermediate files ---
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+compile_commands.json
+
+# --- Binaries ---
+bin/
+*.exe
+*.out
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.lib
+*.pdb
+
+# --- Logs ---
+*.log
+
+# --- Other temporary files ---
+*.tmp
+*.swp
+*.DS_Store
