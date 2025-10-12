@@ -2,6 +2,7 @@
 #include <iostream>
 
 #include "http_request.h"
+#include "http_response.h"
 
 int main() {
     Request req;
@@ -50,6 +51,20 @@ int main() {
     auto dumped = req.to_string();
 
     std::cout << dumped << std::endl;
+
+    auto r404 = Response::not_found("No such page");
+    auto s404 = r404.to_string();
+    assert(s404.find("404") != std::string::npos);
+
+    auto r400 = Response::bad_request("Malformed JSON");
+    auto s400 = r400.to_string();
+    assert(s400.find("400") != std::string::npos);
+    assert(r400.content_type() == "application/json");
+
+
+    auto rs = Response::serve_static(std::filesystem::path("public"), "/readme.txt");
+    auto ss = rs.to_string();
+    std::cout << ss << std::endl;
 
     return 0;
 }

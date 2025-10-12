@@ -17,7 +17,7 @@ std::string Request::get_header_value(std::string_view key, size_t id) const {
 
 size_t Request::get_header_value_count(std::string_view key) const {
     auto [it, end] = headers.equal_range(key);
-    return static_cast<size_t>(std::distance(it, end));
+    return std::distance(it, end);
 }
 
 
@@ -36,7 +36,7 @@ std::string Request::get_param_value(std::string_view key, size_t id) const {
 
 size_t Request::get_param_value_count(std::string_view key) const {
     auto [it, end] = query_params.equal_range(std::string(key));
-    return static_cast<size_t>(std::distance(it, end));
+    return std::distance(it, end);
 }
 
 
@@ -62,17 +62,17 @@ std::string Request::content_type() const {
 std::string Request::to_string() const {
     std::ostringstream ss;
 
-    ss << method_name(method) << " " << target << " " << version << "\n";
+    ss << method_name(method) << " " << target << " " << version << '\n';
 
     for (const auto &h: headers) {
-        ss << h.first << ": " << h.second << "\n";
+        ss << h.first << ": " << h.second << '\n';
     }
 
     if (!body.empty() && !headers.contains("Content-Length")) {
-        ss << "Content-Length: " << body.size() << "\n";
+        ss << "Content-Length: " << body.size() << '\n';
     }
 
-    ss << "\n";
+    ss << '\n';
 
     ss << body;
 
