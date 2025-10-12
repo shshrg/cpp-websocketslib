@@ -29,8 +29,8 @@ int main() {
 
     assert(req.get_header_value("X-Foo", 1) == "a");
 
-    assert(method_name(req.method) == "POST");
-    assert(has_content_type(req, "text/plain"));
+    assert(Request::method_name(req.method) == "POST");
+    assert(req.has_content_type("text/plain"));
 
     assert(req.get_header_value("host") == "example.com");
     assert(req.get_header_value_count("x-foo") == 2);
@@ -39,7 +39,7 @@ int main() {
     auto cl = req.content_length();
     assert(cl.has_value() && cl.value() == 5);
     assert(req.content_type() == "text/plain; charset=utf-8");
-    assert(has_content_type(req, "text/plain"));
+    assert(req.has_content_type("text/plain"));
 
     assert(req.has_param("x"));
     assert(req.get_param_value_count("x") == 2);
@@ -62,9 +62,10 @@ int main() {
     assert(r400.content_type() == "application/json");
 
 
-    auto rs = Response::serve_static(std::filesystem::path("public"), "/readme.txt");
+    auto rs = Response::serve_static(std::filesystem::path("publi"), "/readme.txt");
     auto ss = rs.to_string();
-    std::cout << ss << std::endl;
+    std::cout << ss;
+    std::cout << rs.sendfile_path << " " << rs.sendfile_size << std::endl;
 
     return 0;
 }

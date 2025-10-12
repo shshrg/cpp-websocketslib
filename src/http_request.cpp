@@ -2,11 +2,11 @@
 #include <sstream>
 
 
-bool Request::has_header(std::string_view key) const {
+bool Request::has_header(const std::string & key) const {
     return headers.contains(key);
 }
 
-std::string Request::get_header_value(std::string_view key, size_t id) const {
+std::string Request::get_header_value(const std::string & key, size_t id) const {
     auto [it, end] = headers.equal_range(key);
     for (size_t i = 0; it != end; ++it, ++i) {
         if (i == id)
@@ -15,18 +15,18 @@ std::string Request::get_header_value(std::string_view key, size_t id) const {
     return "";
 }
 
-size_t Request::get_header_value_count(std::string_view key) const {
+size_t Request::get_header_value_count(const std::string & key) const {
     auto [it, end] = headers.equal_range(key);
     return std::distance(it, end);
 }
 
 
-bool Request::has_param(std::string_view key) const {
-    return query_params.contains(std::string(key));
+bool Request::has_param(const std::string & key) const {
+    return query_params.contains(key);
 }
 
-std::string Request::get_param_value(std::string_view key, size_t id) const {
-    auto [it, end] = query_params.equal_range(std::string(key));
+std::string Request::get_param_value(const std::string & key, size_t id) const {
+    auto [it, end] = query_params.equal_range(key);
     for (size_t i = 0; it != end; ++it, ++i) {
         if (i == id)
             return it->second;
@@ -34,8 +34,8 @@ std::string Request::get_param_value(std::string_view key, size_t id) const {
     return "";
 }
 
-size_t Request::get_param_value_count(std::string_view key) const {
-    auto [it, end] = query_params.equal_range(std::string(key));
+size_t Request::get_param_value_count(const std::string & key) const {
+    auto [it, end] = query_params.equal_range(key);
     return std::distance(it, end);
 }
 
@@ -58,6 +58,23 @@ std::string Request::content_type() const {
     return get_header_value("Content-Type");
 }
 
+std::string Request::method_name(Method m) noexcept {
+    static constexpr std::string names[] = {
+        "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"
+    };
+    const auto index = static_cast<size_t>(m);
+    return index < std::size(names) ? names[index] : "UNKNOWN";
+}
+
+bool Request::has_content_type(const std::string & sub_type) const {
+    auto ct = content_type();
+    auto pos = ct.find(';');
+
+    if (pos != std::string::npos)
+        ct.resize(pos);
+
+    return ct == sub_type;
+}
 
 std::string Request::to_string() const {
     std::ostringstream ss;
