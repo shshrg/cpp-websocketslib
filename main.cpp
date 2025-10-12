@@ -1,7 +1,55 @@
+#include <cassert>
+#include <iostream>
+
 #include "http_request.h"
 
+int main() {
+    Request req;
+
+    req.method = Method::POST;
+    req.version = "HTTP/1.1";
+    req.target = "/upload/?x=1&x=2";
+    req.path = "/upload";
+    req.body = "hello";
 
 
-int main(int argc, char *argv[]) {
+    req.headers.emplace("host", "example.com");
+    req.headers.emplace("Content-Type", "text/plain; charset=utf-8");
+    req.headers.emplace("content-length", "5");
+    req.headers.emplace("X-Foo", "a");
+    req.headers.emplace("X-Foo", "b");
+
+    req.query_params.emplace("x", "1");
+    req.query_params.emplace("x", "2");
+
+
+    assert(req.has_header("HOST"));                     // string literal -> string_view
+    assert(req.has_header(std::string("Host")));
+
+    assert(req.get_header_value("X-Foo", 1) == "a");
+
+    assert(method_name(req.method) == "POST");
+    assert(has_content_type(req, "text/plain"));
+
+    assert(req.get_header_value("host") == "example.com");
+    assert(req.get_header_value_count("x-foo") == 2);
+    assert(req.get_header_value("missing").empty());
+
+    auto cl = req.content_length();
+    assert(cl.has_value() && cl.value() == 5);
+    assert(req.content_type() == "text/plain; charset=utf-8");
+    assert(has_content_type(req, "text/plain"));
+
+    assert(req.has_param("x"));
+    assert(req.get_param_value_count("x") == 2);
+    assert(req.get_param_value("x", 0) == "1");
+    assert(req.get_param_value("x", 1) == "2");
+    assert(req.get_param_value("x", 2).empty());
+    assert(!req.has_param("y"));
+
+    auto dumped = req.to_string();
+
+    std::cout << dumped << std::endl;
+
     return 0;
 }
