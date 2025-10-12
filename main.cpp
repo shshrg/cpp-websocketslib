@@ -24,7 +24,7 @@ int main() {
     req.query_params.emplace("x", "2");
 
 
-    assert(req.has_header("HOST"));                     // string literal -> string_view
+    assert(req.has_header("HOST")); // literal
     assert(req.has_header(std::string("Host")));
 
     assert(req.get_header_value("X-Foo", 1) == "a");
