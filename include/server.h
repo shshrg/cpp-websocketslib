@@ -9,9 +9,9 @@ typedef std::function<void(size_t, size_t)> ProgressCallback;
 
 class Server : public std::enable_shared_from_this<Server> {
 public:
-    Server(asio::io_context& io_context, unsigned short port);
+    Server(asio::io_context &io_context, const asio::ip::address &address, unsigned short port);
 
-    void start();
+    void start(size_t worker_threads);
     void stop();
     void cancel_all();
 

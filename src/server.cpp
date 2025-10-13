@@ -6,12 +6,13 @@
 #include "http/response.h"
 #include "http/utils.h"
 
-Server::Server(asio::io_context &io_context, unsigned short port)
+Server::Server(asio::io_context &io_context,
+               const asio::ip::address &address,
+               unsigned short port)
     : io_context_(io_context),
-      acceptor_(io_context, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port)) {
+      acceptor_(io_context, asio::ip::tcp::endpoint(address, port)) {
 }
-
-void Server::start() {
+void Server::start(size_t worker_threads) {
     std::lock_guard lock(mutex_);
     if (is_running_) return;
     is_running_ = true;
@@ -21,7 +22,7 @@ void Server::start() {
     asio::co_spawn(io_context_, do_accept(global_token_), asio::detached);
 
 
-    for (int i = 0; i < 7; ++i) {
+    for (int i = 0; i < worker_threads; ++i) {
         workers_.emplace_back([this] { io_context_.run(); });
     }
 }

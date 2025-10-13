@@ -5,9 +5,10 @@ int main() {
     asio::io_context io_context;
 
     unsigned short port = 12345;
-    Server server(io_context, port);
+	auto address = asio::ip::make_address("0.0.0.0");
+    Server server(io_context, address, port);
 
-    server.start();
+    server.start(8);
     std::cout << "Server started on port " << port << "\n";
 
     std::cin.get();
