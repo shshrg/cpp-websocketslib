@@ -73,9 +73,13 @@ struct Request {
     std::string to_string() const;
     std::optional<size_t> content_length() const;
     std::string content_type() const;
-    static std::string method_name(Method m) noexcept;
+
+    static std::string method_str(Method m) noexcept;
+    static Method method_enum(const std::string & s) noexcept;
+
     bool has_content_type(const std::string & sub_type) const;
 };
 
 
 #endif //WEBSOCKETLIB_HTTP_REQUEST_H
+

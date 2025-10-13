@@ -1,5 +1,4 @@
-#include "http_response.h"
-
+#include "http/response.h"
 #include <fstream>
 
 namespace fs = std::filesystem;
@@ -56,18 +55,18 @@ std::string Response::to_string() const {
 
     auto reason = reason_phrase(status);
 
-    ss << version << " " << status << " " << reason << '\n';
+    ss << version << " " << status << " " << reason << "\r\n";
 
 
     for (const auto &h: headers) {
-        ss << h.first << ": " << h.second << '\n';
+        ss << h.first << ": " << h.second << "\r\n";
     }
 
     if (!body.empty() && !headers.contains("Content-Length")) {
-        ss << "Content-Length: " << body.size() << '\n';
+        ss << "Content-Length: " << body.size() << "\r\n";
     }
 
-    ss << '\n';
+    ss << "\r\n";
 
     ss << body;
 

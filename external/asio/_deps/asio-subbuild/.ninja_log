@@ -1,0 +1,21 @@
+# ninja log v6
+1	3	1760305012872069019	asio-populate-prefix/src/asio-populate-stamp/asio-populate-mkdir	8079999956e10922
+1	3	1760305012872069019	/home/andrii/CLionProjects/parser/asio/_deps/asio-subbuild/asio-populate-prefix/src/asio-populate-stamp/asio-populate-mkdir	8079999956e10922
+3	14303	1760305027172775714	asio-populate-prefix/src/asio-populate-stamp/asio-populate-download	3091559c51957fb8
+3	14303	1760305027172775714	/home/andrii/CLionProjects/parser/asio/_deps/asio-subbuild/asio-populate-prefix/src/asio-populate-stamp/asio-populate-download	3091559c51957fb8
+14303	14308	1760305027172775714	asio-populate-prefix/src/asio-populate-stamp/asio-populate-update	81648562bd725b53
+14303	14308	1760305027172775714	/home/andrii/CLionProjects/parser/asio/_deps/asio-subbuild/asio-populate-prefix/src/asio-populate-stamp/asio-populate-update	81648562bd725b53
+14308	14310	1760305027179775572	asio-populate-prefix/src/asio-populate-stamp/asio-populate-patch	effd434c40caeb3
+14308	14310	1760305027179775572	/home/andrii/CLionProjects/parser/asio/_deps/asio-subbuild/asio-populate-prefix/src/asio-populate-stamp/asio-populate-patch	effd434c40caeb3
+14310	14312	1760305027181775531	asio-populate-prefix/src/asio-populate-stamp/asio-populate-configure	434003fdb082d43e
+14310	14312	1760305027181775531	/home/andrii/CLionProjects/parser/asio/_deps/asio-subbuild/asio-populate-prefix/src/asio-populate-stamp/asio-populate-configure	434003fdb082d43e
+14312	14314	1760305027183775491	asio-populate-prefix/src/asio-populate-stamp/asio-populate-build	7b64d070ed257910
+14312	14314	1760305027183775491	/home/andrii/CLionProjects/parser/asio/_deps/asio-subbuild/asio-populate-prefix/src/asio-populate-stamp/asio-populate-build	7b64d070ed257910
+14314	14316	1760305027184775471	asio-populate-prefix/src/asio-populate-stamp/asio-populate-install	6587b738c0b1da62
+14314	14316	1760305027184775471	/home/andrii/CLionProjects/parser/asio/_deps/asio-subbuild/asio-populate-prefix/src/asio-populate-stamp/asio-populate-install	6587b738c0b1da62
+14316	14318	1760305027186775430	asio-populate-prefix/src/asio-populate-stamp/asio-populate-test	b9f7926717e99386
+14316	14318	1760305027186775430	/home/andrii/CLionProjects/parser/asio/_deps/asio-subbuild/asio-populate-prefix/src/asio-populate-stamp/asio-populate-test	b9f7926717e99386
+14318	14323	1760305027189775369	CMakeFiles/asio-populate-complete	be7727d1b6e65a25
+14318	14323	1760305027189775369	asio-populate-prefix/src/asio-populate-stamp/asio-populate-done	be7727d1b6e65a25
+14318	14323	1760305027189775369	/home/andrii/CLionProjects/parser/asio/_deps/asio-subbuild/CMakeFiles/asio-populate-complete	be7727d1b6e65a25
+14318	14323	1760305027189775369	/home/andrii/CLionProjects/parser/asio/_deps/asio-subbuild/asio-populate-prefix/src/asio-populate-stamp/asio-populate-done	be7727d1b6e65a25

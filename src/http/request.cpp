@@ -1,12 +1,12 @@
-#include "http_request.h"
+#include "http/request.h"
 #include <sstream>
 
 
-bool Request::has_header(const std::string & key) const {
+bool Request::has_header(const std::string &key) const {
     return headers.contains(key);
 }
 
-std::string Request::get_header_value(const std::string & key, size_t id) const {
+std::string Request::get_header_value(const std::string &key, size_t id) const {
     auto [it, end] = headers.equal_range(key);
     for (size_t i = 0; it != end; ++it, ++i) {
         if (i == id)
@@ -15,17 +15,17 @@ std::string Request::get_header_value(const std::string & key, size_t id) const 
     return "";
 }
 
-size_t Request::get_header_value_count(const std::string & key) const {
+size_t Request::get_header_value_count(const std::string &key) const {
     auto [it, end] = headers.equal_range(key);
     return std::distance(it, end);
 }
 
 
-bool Request::has_param(const std::string & key) const {
+bool Request::has_param(const std::string &key) const {
     return query_params.contains(key);
 }
 
-std::string Request::get_param_value(const std::string & key, size_t id) const {
+std::string Request::get_param_value(const std::string &key, size_t id) const {
     auto [it, end] = query_params.equal_range(key);
     for (size_t i = 0; it != end; ++it, ++i) {
         if (i == id)
@@ -34,7 +34,7 @@ std::string Request::get_param_value(const std::string & key, size_t id) const {
     return "";
 }
 
-size_t Request::get_param_value_count(const std::string & key) const {
+size_t Request::get_param_value_count(const std::string &key) const {
     auto [it, end] = query_params.equal_range(key);
     return std::distance(it, end);
 }
@@ -58,15 +58,32 @@ std::string Request::content_type() const {
     return get_header_value("Content-Type");
 }
 
-std::string Request::method_name(Method m) noexcept {
-    static constexpr std::string names[] = {
+std::string Request::method_str(Method m) noexcept {
+    static const std::string names[] = {
         "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"
     };
     const auto index = static_cast<size_t>(m);
     return index < std::size(names) ? names[index] : "UNKNOWN";
 }
 
-bool Request::has_content_type(const std::string & sub_type) const {
+Method Request::method_enum(const std::string &s) noexcept {
+    static const std::unordered_map<std::string, Method> names = {
+        {"GET", Method::GET},
+        {"POST", Method::POST},
+        {"PUT", Method::PUT},
+        {"DELETE", Method::DELETE},
+        {"PATCH", Method::PATCH},
+        {"HEAD", Method::HEAD},
+        {"OPTIONS", Method::OPTIONS}
+    };
+
+    auto it = names.find(s);
+    return (it == names.end()) ? Method::UNKNOWN : it->second;
+
+}
+
+
+bool Request::has_content_type(const std::string &sub_type) const {
     auto ct = content_type();
     auto pos = ct.find(';');
 
@@ -79,17 +96,17 @@ bool Request::has_content_type(const std::string & sub_type) const {
 std::string Request::to_string() const {
     std::ostringstream ss;
 
-    ss << method_name(method) << " " << target << " " << version << '\n';
+    ss << method_str(method) << " " << target << " " << version << "\r\n";
 
     for (const auto &h: headers) {
-        ss << h.first << ": " << h.second << '\n';
+        ss << h.first << ": " << h.second << "\r\n";
     }
 
     if (!body.empty() && !headers.contains("Content-Length")) {
-        ss << "Content-Length: " << body.size() << '\n';
+        ss << "Content-Length: " << body.size() << "\r\n";
     }
 
-    ss << '\n';
+    ss << "\r\n";
 
     ss << body;
 

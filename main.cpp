@@ -1,8 +1,8 @@
 #include <cassert>
 #include <iostream>
 
-#include "http_request.h"
-#include "http_response.h"
+#include "http/request.h"
+#include "http/response.h"
 
 int main() {
     Request req;

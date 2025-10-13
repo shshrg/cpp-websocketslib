@@ -1,6 +1,6 @@
 #ifndef WEBSOCKETLIB_HTTP_RESPONSE_H
 #define WEBSOCKETLIB_HTTP_RESPONSE_H
-#include "http_request.h"
+#include "request.h"
 #include "status_codes.h"
 #include <filesystem>
 
