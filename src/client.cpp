@@ -12,30 +12,22 @@ using asio::detached;
 using asio::ip::tcp;
 using namespace asio::experimental::awaitable_operators;
 
-awaitable<void> do_read(tcp::socket& socket)
-{
-    try
-    {
+awaitable<void> do_read(tcp::socket &socket) {
+    try {
         std::vector<char> buf(1024);
-        while (true)
-        {
+        while (true) {
             std::size_t n = co_await socket.async_read_some(asio::buffer(buf), asio::use_awaitable);
             std::string data(buf.data(), n);
             std::cout << "Server replied: " << data << "\n";
         }
-    }
-    catch (std::exception& e)
-    {
+    } catch (std::exception &e) {
         std::cout << "Read stopped: " << e.what() << "\n";
     }
 }
 
-awaitable<void> do_write(tcp::socket& socket)
-{
-    try
-    {
-        while (true)
-        {
+awaitable<void> do_write(tcp::socket &socket) {
+    try {
+        while (true) {
             std::string line;
             std::getline(std::cin, line);
             if (line.empty()) break;
@@ -56,21 +48,26 @@ awaitable<void> do_write(tcp::socket& socket)
         }
 
         socket.close();
-    }
-    catch (std::exception& e)
-    {
+    } catch (std::exception &e) {
         std::cout << "Write stopped: " << e.what() << "\n";
     }
 }
 
-int main()
-{
-    try
-    {
+int main(int argc, char *argv[]) {
+    try {
+        auto port = "12345";
+        if (argc >= 2) {
+            port = argv[1];
+        }
+
+        if (argc > 2) {
+            std::cerr << "Usage:\n  " << argv[0] << " [port]\n";
+            return 1;
+        }
         asio::io_context io_context;
 
         tcp::resolver resolver(io_context);
-        auto endpoints = resolver.resolve("127.0.0.1", "12345");
+        auto endpoints = resolver.resolve("127.0.0.1", port);
         tcp::socket socket(io_context);
         asio::connect(socket, endpoints);
         std::cout << "Connected to server.\n";
@@ -79,9 +76,7 @@ int main()
         co_spawn(io_context, do_write(socket), detached);
 
         io_context.run();
-    }
-    catch (std::exception& e)
-    {
+    } catch (std::exception &e) {
         std::cerr << "Exception: " << e.what() << "\n";
     }
 

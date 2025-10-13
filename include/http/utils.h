@@ -4,14 +4,6 @@
 #include "request.h"
 
 
-inline std::string take_front(asio::streambuf &buf, std::size_t n) {
-    auto seq = buf.data();
-    std::string out(n, '\0');
-    std::copy_n(asio::buffers_begin(seq), n, out.begin());
-    buf.consume(n);
-    return out;
-}
-
 inline std::string ltrim(std::string s) {
     s.erase(s.begin(),
             std::ranges::find_if(s, [](unsigned char c) { return !std::isspace(c); }));
