@@ -12,6 +12,7 @@ Server::Server(asio::io_context &io_context,
     : io_context_(io_context),
       acceptor_(io_context, asio::ip::tcp::endpoint(address, port)) {
 }
+
 void Server::start(size_t worker_threads) {
     std::lock_guard lock(mutex_);
     if (is_running_) return;
@@ -21,8 +22,8 @@ void Server::start(size_t worker_threads) {
     const auto global_token_ = cancellation_signal_.slot();
     asio::co_spawn(io_context_, do_accept(global_token_), asio::detached);
 
-
-    for (int i = 0; i < worker_threads; ++i) {
+    size_t threads = std::min(worker_threads, static_cast<size_t>(std::thread::hardware_concurrency()));
+    for (int i = 0; i < threads; ++i) {
         workers_.emplace_back([this] { io_context_.run(); });
     }
 }
