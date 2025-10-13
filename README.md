@@ -1,4 +1,4 @@
-# An Asynchronous C++ Library for Building High-Performance HTTP(S) and WebSocket Servers
+# Web Server with WebSockets Library
 
 ## Overview
 This project implements a high-performance asynchronous HTTP/1.1 web server with WebSocket support using Asio coroutines
