@@ -74,7 +74,7 @@ co_read_headers(asio::ip::tcp::socket &socket,
         socket, buffer, "\r\n\r\n",
         asio::bind_cancellation_slot(token, asio::use_awaitable));
 
-    co_return take_front(buffer, header_bytes); // exact header bytes
+    co_return take_front(buffer, header_bytes);
 }
 
 template<typename CancellationToken>
@@ -87,7 +87,6 @@ co_read_body(asio::ip::tcp::socket &socket,
     std::string body;
     body.reserve(content_len);
 
-    // take any bytes already in the buffer
     {
         const std::size_t avail = buffer.size();
         const std::size_t take = std::min(avail, content_len);
@@ -97,11 +96,9 @@ co_read_body(asio::ip::tcp::socket &socket,
         }
     }
 
-    // read the remainder
     while (body.size() < content_len) {
         const std::size_t need = content_len - body.size();
 
-        // transfer_exactly(need) is simplest for fixed-length bodies
         std::size_t n = co_await asio::async_read(
             socket, buffer,
             asio::transfer_exactly(need),
@@ -132,7 +129,6 @@ asio::awaitable<void> Server::do_read(std::shared_ptr<asio::ip::tcp::socket> soc
         parse_http_request(headers_text, req);
 
 
-        // 3) Determine body length
         const std::size_t content_len = req.content_length().value_or(0);
         if (content_len) {
             std::string body = co_await co_read_body(*socket, buffer, content_len, token, on_progress);
@@ -140,6 +136,7 @@ asio::awaitable<void> Server::do_read(std::shared_ptr<asio::ip::tcp::socket> soc
         }
 
         std::cout << req.to_string() << "\n";
+
 
         Response resp = Response::text("OK\n");
         std::string payload = resp.to_string();
