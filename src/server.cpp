@@ -152,19 +152,3 @@ asio::awaitable<void> Server::do_write(std::shared_ptr<asio::ip::tcp::socket> so
                                asio::bind_cancellation_slot(token, asio::use_awaitable));
 }
 
-int main() {
-    asio::io_context io_context;
-
-    unsigned short port = 12345;
-    Server server(io_context, port);
-
-    server.start();
-    std::cout << "Server started on port " << port << "\n";
-
-    std::cin.get();
-    server.stop();
-
-    std::cout << "Server stopped.\n";
-
-    return 0;
-}
