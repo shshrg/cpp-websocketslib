@@ -2,6 +2,9 @@
 #include <iostream>
 #include <thread>
 #include "http/request.h"
+#include "http/response.h"
+#include "http/utils.h"
+#include "io_helpers.h"
 
 
 void Server::start(size_t worker_threads) {
@@ -21,7 +24,7 @@ void Server::start(size_t worker_threads) {
 void Server::stop() {
     server_cancel_.emit(asio::cancellation_type::all);
 
-    cancel_all_sessions();
+    emit_all();
 
     if (work_guard_)
         work_guard_.reset();
@@ -34,29 +37,19 @@ void Server::stop() {
 }
 
 asio::awaitable<void> Server::do_accept() {
-    auto ex = co_await asio::this_coro::executor;
-    std::atomic_int counter = 0;
+    size_t client_id = 0;
 
-    for (;;) {
-        ++counter;
-        auto socket = std::make_shared<tcp::socket>(ex);
-        auto [ec] = co_await acceptor_.async_accept(*socket,
-        asio::bind_cancellation_slot(server_slot_, asio::as_tuple(asio::use_awaitable)));
+    while (true) {
+        ++client_id;
+        tcp::socket socket = co_await acceptor_.async_accept(asio::bind_cancellation_slot(server_slot_, asio::use_awaitable));
 
-        if (ec == asio::error::operation_aborted)
-            co_return;
+        std::cout << "New client connected: " << client_id << "\n";
 
-        if (ec) continue;
-
-        std::cout << "New client connected: " << counter << "\n";
-
-        auto session = std::make_shared<Session>(socket);
-        add_session(session);
 
         asio::co_spawn(io_context_,
-                   [this, s = session]() -> asio::awaitable<void> {
-                       co_await s->run_once();
-                       remove_session(s);
+                   [this, &socket, client_id]() -> asio::awaitable<void> {
+                       co_await handle_client(std::move(socket), client_id);
+                       remove_client(client_id);
                        co_return;
                    },
                    asio::detached);
@@ -64,21 +57,53 @@ asio::awaitable<void> Server::do_accept() {
 
 }
 
-void Server::add_session(const std::shared_ptr<Session>& s) {
-    std::scoped_lock lk(mutex_);
-    sessions_.insert(s);
+
+asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id) {
+
+    asio::cancellation_slot token = client_cancel_[client_id].slot();
+    Request req = co_await do_read(socket, token);
+
+    std::cout << req.to_string() << "\n";
+
+    co_await do_write(socket, token);
 }
 
-void Server::remove_session(const std::shared_ptr<Session>& s) {
-    std::scoped_lock lk(mutex_);
-    sessions_.erase(s);
-}
 
-void Server::cancel_all_sessions() {
-    std::vector<std::shared_ptr<Session>> copy;
-    {
-        std::scoped_lock lk(mutex_);
-        copy.assign(sessions_.begin(), sessions_.end());
+asio::awaitable<Request> Server::do_read(tcp::socket & socket, asio::cancellation_slot token) {
+    Request req;
+    asio::streambuf buf;
+
+    std::string headers_text = co_await co_read_headers(socket, buf, token);
+
+    parse_http_request(headers_text, req); // TODO: make coroutine
+
+    const std::size_t clen = req.content_length().value_or(0);
+    if (clen) {
+        req.body = co_await co_read_body(socket, buf, clen, token);
     }
-    for (auto& s : copy) s->cancel();
+
+    co_return req;
+}
+
+
+asio::awaitable<void> Server::do_write(tcp::socket & socket, asio::cancellation_slot token) {
+    Response resp = Response::text("OK\n");
+    std::string payload = resp.to_string();
+
+    co_await asio::async_write(socket, asio::buffer(payload), asio::bind_cancellation_slot(token, asio::use_awaitable));
+}
+
+void Server::emit_client(size_t client_id) {
+    client_cancel_[client_id].emit(asio::cancellation_type::all);
+}
+
+void Server::emit_all() {
+    for (const auto &pair: client_cancel_) {
+        emit_client(pair.first);
+    }
+}
+
+void Server::remove_client(size_t client_id) {
+    std::lock_guard lock(mutex_);
+    client_cancel_.erase(client_id);
 }

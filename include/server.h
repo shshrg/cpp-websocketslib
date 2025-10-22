@@ -4,8 +4,7 @@
 #include <asio.hpp>
 #include <memory>
 #include <vector>
-#include <unordered_set>
-#include "session.h"
+#include "http/request.h"
 
 
 class Server : public std::enable_shared_from_this<Server> {
@@ -22,10 +21,13 @@ public:
 
 private:
     asio::awaitable<void> do_accept();
+    void emit_client(size_t client_id);
+    void emit_all();
+    void remove_client(size_t client_id);
 
-    void add_session(const std::shared_ptr<Session> &s);
-    void remove_session(const std::shared_ptr<Session> &s);
-    void cancel_all_sessions();
+    asio::awaitable<Request> do_read(tcp::socket & socket, asio::cancellation_slot token);
+    asio::awaitable<void> do_write(tcp::socket & socket, asio::cancellation_slot token);
+    asio::awaitable<void> handle_client(tcp::socket socket, size_t client_id);
 
     asio::io_context &io_context_;
     asio::ip::tcp::acceptor acceptor_;
@@ -37,7 +39,7 @@ private:
     asio::cancellation_slot server_slot_ = server_cancel_.slot();
 
     std::mutex mutex_;
-    std::unordered_set<std::shared_ptr<Session> > sessions_;
+    std::unordered_map<uint64_t, asio::cancellation_signal> client_cancel_;
 };
 
 
