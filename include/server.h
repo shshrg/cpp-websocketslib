@@ -43,7 +43,7 @@ private:
     asio::cancellation_signal server_cancel_;
     asio::cancellation_slot server_slot_ = server_cancel_.slot();
 
-    std::shared_mutex mutex_;
+    std::mutex mutex_;
     std::unordered_map<size_t, asio::cancellation_signal> client_cancel_;
 };
 

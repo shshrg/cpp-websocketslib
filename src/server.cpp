@@ -103,14 +103,14 @@ void Server::add_client(size_t client_id) {
 }
 
 asio::cancellation_slot Server::get_client_slot(size_t client_id) {
-    std::shared_lock lock(mutex_);
+    std::lock_guard lock(mutex_);
     auto it = client_cancel_.find(client_id);
     return (it != client_cancel_.end()) ? it->second.slot() : asio::cancellation_slot();
 }
 
 
 void Server::emit_client(size_t client_id) {
-    std::shared_lock lock(mutex_);
+    std::lock_guard lock(mutex_);
     auto it = client_cancel_.find(client_id);
     if (it != client_cancel_.end())
         it->second.emit(asio::cancellation_type::all);
@@ -119,7 +119,7 @@ void Server::emit_client(size_t client_id) {
 void Server::emit_all() {
     std::vector<size_t> client_ids;
     {
-        std::shared_lock lock(mutex_);
+        std::lock_guard lock(mutex_);
         client_ids.reserve(client_cancel_.size());
         for (const auto &key: client_cancel_ | std::views::keys) {
             client_ids.push_back(key);
