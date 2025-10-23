@@ -1,16 +1,15 @@
 #include "server.h"
 #include <iostream>
 #include <ranges>
-#include <shared_mutex>
 #include <thread>
-#include "http/request.h"
-#include "http/response.h"
 #include "http/utils.h"
 #include "io_helpers.h"
 
 
 void Server::start(size_t worker_threads) {
     if (work_guard_) return;
+
+    // Keep io_context alive
     work_guard_.emplace(asio::make_work_guard(io_context_));
 
     asio::co_spawn(io_context_, do_accept(), asio::detached);
@@ -24,8 +23,10 @@ void Server::start(size_t worker_threads) {
 }
 
 void Server::stop() {
+    // Stop accepting clients
     server_cancel_.emit(asio::cancellation_type::all);
 
+    // Finish read/write client operations
     emit_all();
 
     if (work_guard_)
@@ -35,7 +36,6 @@ void Server::stop() {
         if (t.joinable()) t.join();
 
     workers_.clear();
-
 }
 
 asio::awaitable<void> Server::do_accept() {
@@ -43,7 +43,8 @@ asio::awaitable<void> Server::do_accept() {
 
     while (true) {
         ++client_id;
-        tcp::socket socket = co_await acceptor_.async_accept(asio::bind_cancellation_slot(server_slot_, asio::use_awaitable));
+        tcp::socket socket = co_await acceptor_.async_accept(
+            asio::bind_cancellation_slot(server_slot_, asio::use_awaitable));
 
         std::cout << "New client connected: " << client_id << "\n";
 
@@ -51,29 +52,29 @@ asio::awaitable<void> Server::do_accept() {
         add_client(client_id);
 
         asio::co_spawn(io_context_,
-                   [this, &socket, client_id]() -> asio::awaitable<void> {
-                       co_await handle_client(std::move(socket), client_id);
-                       remove_client(client_id);
-                       co_return;
-                   },
-                   asio::detached);
+                       [this, &socket, client_id]() -> asio::awaitable<void> {
+                           co_await handle_client(std::move(socket), client_id);
+                           remove_client(client_id);
+                           co_return;
+                       },
+                       asio::detached);
     }
-
 }
 
 
 asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id) {
-
     asio::cancellation_slot token = get_client_slot(client_id);
     Request req = co_await do_read(socket, token);
 
     std::cout << req.to_string() << "\n";
 
-    co_await do_write(socket, token);
+    Response resp = co_await handle_request(req);
+
+    co_await do_write(socket, resp, token);
 }
 
 
-asio::awaitable<Request> Server::do_read(tcp::socket & socket, asio::cancellation_slot token) {
+asio::awaitable<Request> Server::do_read(tcp::socket &socket, asio::cancellation_slot token) {
     Request req;
     asio::streambuf buf;
 
@@ -90,9 +91,8 @@ asio::awaitable<Request> Server::do_read(tcp::socket & socket, asio::cancellatio
 }
 
 
-asio::awaitable<void> Server::do_write(tcp::socket & socket, asio::cancellation_slot token) {
-    Response resp = Response::text("OK\n");
-    std::string payload = resp.to_string();
+asio::awaitable<void> Server::do_write(tcp::socket &socket, const Response &response, asio::cancellation_slot token) {
+    std::string payload = response.to_string();
 
     co_await asio::async_write(socket, asio::buffer(payload), asio::bind_cancellation_slot(token, asio::use_awaitable));
 }
@@ -132,4 +132,21 @@ void Server::emit_all() {
 void Server::remove_client(size_t client_id) {
     std::lock_guard lock(mutex_);
     client_cancel_.erase(client_id);
+}
+
+
+void Server::add_route(Method method, std::string path, Handler handler) {
+    routes_[method].emplace(std::move(path), std::move(handler));
+}
+
+
+asio::awaitable<Response> Server::handle_request(const Request &request) {
+    auto it_method = routes_.find(request.method);
+    if (it_method != routes_.end()) {
+        auto it_path = it_method->second.find(request.path);
+        if (it_path != it_method->second.end()) {
+            co_return co_await it_path->second(request);
+        }
+    }
+    co_return Response::not_found();
 }

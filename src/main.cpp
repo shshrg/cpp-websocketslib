@@ -32,6 +32,10 @@ int main(int argc, char *argv[]) {
 	auto address = asio::ip::make_address("0.0.0.0");
     Server server(io_context, address, port);
 
+    server.Get("/hello", [](const Request &request) -> asio::awaitable<Response> {
+        co_return Response::text("OK");
+    });
+
     server.start(num_threads);
     std::cout << "Server started on port " << port << "\n";
 

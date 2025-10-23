@@ -33,9 +33,9 @@ awaitable<void> do_write(tcp::socket &socket) {
             if (line.empty()) break;
 
             Request request;
-            request.method = Method::POST;
+            request.method = Method::GET;
             request.version = "HTTP/1.1";
-            request.target = "/test?x=1&x=2";
+            request.target = "/hello";
 
             request.headers.emplace("Host", "localhost");
             request.headers.emplace("Content-Length", std::to_string(line.size()));
