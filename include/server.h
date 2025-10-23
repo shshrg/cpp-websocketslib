@@ -3,6 +3,7 @@
 
 #include <asio.hpp>
 #include <memory>
+#include <shared_mutex>
 #include <vector>
 #include "http/request.h"
 
@@ -20,14 +21,18 @@ public:
     void stop();
 
 private:
-    asio::awaitable<void> do_accept();
+    // Client cancellation
+    asio::cancellation_slot get_client_slot(size_t client_id);
+    asio::awaitable<void> handle_client(tcp::socket socket, size_t client_id);
+    void add_client(size_t client_id);
     void emit_client(size_t client_id);
     void emit_all();
     void remove_client(size_t client_id);
 
+
+    asio::awaitable<void> do_accept();
     asio::awaitable<Request> do_read(tcp::socket & socket, asio::cancellation_slot token);
     asio::awaitable<void> do_write(tcp::socket & socket, asio::cancellation_slot token);
-    asio::awaitable<void> handle_client(tcp::socket socket, size_t client_id);
 
     asio::io_context &io_context_;
     asio::ip::tcp::acceptor acceptor_;
@@ -38,8 +43,8 @@ private:
     asio::cancellation_signal server_cancel_;
     asio::cancellation_slot server_slot_ = server_cancel_.slot();
 
-    std::mutex mutex_;
-    std::unordered_map<uint64_t, asio::cancellation_signal> client_cancel_;
+    std::shared_mutex mutex_;
+    std::unordered_map<size_t, asio::cancellation_signal> client_cancel_;
 };
 
 
