@@ -18,11 +18,11 @@ using call_result_t = std::invoke_result_t<F, const Request &>;
 // concept is a set of requirements
 // i.e. some constraint onto the macro to distinguish between SyncHandler and AsyncHandler
 template<class F>
-concept SyncHandler = std::is_same_v<call_result_t<F>, Response>;
+concept SyncConstraint = std::is_same_v<call_result_t<F>, Response>;
 
 // Need a constraint here to differ between make_async in add_route
 template<class F>
-concept AsyncHandler = std::is_same_v<call_result_t<F>, asio::awaitable<Response>>;
+concept AsyncConstraint = std::is_same_v<call_result_t<F>, asio::awaitable<Response>>;
 
 
 class Server : public std::enable_shared_from_this<Server> {
@@ -66,14 +66,14 @@ private:
     }
 
 
-    template<SyncHandler F>
+    template<SyncConstraint F>
     HandlerAsync make_async(F h) {
         return [fn = std::move(h)](const Request &req) -> asio::awaitable<Response> {
             co_return fn(req);
         };
     }
 
-    template<AsyncHandler F>
+    template<AsyncConstraint F>
     HandlerAsync make_async(F h) {
         return [fn = std::move(h)](const Request &req) -> asio::awaitable<Response> {
             co_return co_await fn(req);
