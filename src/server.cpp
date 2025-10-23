@@ -135,10 +135,6 @@ void Server::remove_client(size_t client_id) {
 }
 
 
-void Server::add_route(Method method, std::string path, Handler handler) {
-    routes_[method].emplace(std::move(path), std::move(handler));
-}
-
 
 asio::awaitable<Response> Server::handle_request(const Request &request) {
     auto it_method = routes_.find(request.method);

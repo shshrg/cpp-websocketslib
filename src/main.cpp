@@ -33,7 +33,11 @@ int main(int argc, char *argv[]) {
     Server server(io_context, address, port);
 
     server.Get("/hello", [](const Request &request) -> asio::awaitable<Response> {
-        co_return Response::text("OK");
+        co_return Response::text("This was a get method from async");
+    });
+
+    server.Post("/hello", [](const Request &request) {
+        return Response::text("This was a post method from sync");
     });
 
     server.start(num_threads);

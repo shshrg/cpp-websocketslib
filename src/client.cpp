@@ -33,7 +33,7 @@ awaitable<void> do_write(tcp::socket &socket) {
             if (line.empty()) break;
 
             Request request;
-            request.method = Method::GET;
+            request.method = Method::POST;
             request.version = "HTTP/1.1";
             request.target = "/hello";
 
