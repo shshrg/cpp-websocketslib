@@ -79,7 +79,7 @@ asio::awaitable<Request> Server::do_read(tcp::socket & socket, asio::cancellatio
 
     std::string headers_text = co_await co_read_headers(socket, buf, token);
 
-    parse_http_request(headers_text, req); // TODO: make coroutine
+    parse_http_request(headers_text, req);
 
     const std::size_t clen = req.content_length().value_or(0);
     if (clen) {
