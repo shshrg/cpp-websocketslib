@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
     asio::io_context io_context;
 
 	auto address = asio::ip::make_address("0.0.0.0");
-    Server server(io_context, address, port);
+    Server server(io_context, address, port, true);
 
     server.Get("/hello", [](const Request &request) -> asio::awaitable<Response> {
         co_return Response::text("OK");

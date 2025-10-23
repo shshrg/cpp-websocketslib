@@ -82,3 +82,12 @@ lcov/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# SSL certificates and private keys
+certs/
+*.pem
+*.crt
+*.key
+*.csr
+*.der
+*.p12

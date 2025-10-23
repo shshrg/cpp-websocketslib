@@ -13,8 +13,10 @@ inline std::string take_front(asio::streambuf &buf, std::size_t n) {
     return out;
 }
 
+
+template <typename Socket>
 inline asio::awaitable<std::string>
-co_read_headers(asio::ip::tcp::socket &socket,
+co_read_headers(Socket &socket,
                 asio::streambuf &buffer,
                 asio::cancellation_slot token) {
     size_t header_bytes =
@@ -24,8 +26,9 @@ co_read_headers(asio::ip::tcp::socket &socket,
     co_return take_front(buffer, header_bytes);
 }
 
+template <typename Socket>
 inline asio::awaitable<std::string>
-co_read_body(asio::ip::tcp::socket &socket,
+co_read_body(Socket &socket,
              asio::streambuf &buffer,
              std::size_t content_len,
              asio::cancellation_slot token) {

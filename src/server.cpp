@@ -61,20 +61,35 @@ asio::awaitable<void> Server::do_accept() {
     }
 }
 
-
-asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id) {
-    asio::cancellation_slot token = get_client_slot(client_id);
+template <typename Socket>
+asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation_slot token)
+{
     Request req = co_await do_read(socket, token);
-
     std::cout << req.to_string() << "\n";
 
     Response resp = co_await handle_request(req);
-
     co_await do_write(socket, resp, token);
 }
 
 
-asio::awaitable<Request> Server::do_read(tcp::socket &socket, asio::cancellation_slot token) {
+asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id) {
+    asio::cancellation_slot token = get_client_slot(client_id);
+
+    if (use_ssl_)
+    {
+        std::cout << "Client " << client_id << " use TLS\n";
+        asio::ssl::stream<tcp::socket> ssl_stream(std::move(socket), ssl_context_);
+        co_await ssl_stream.async_handshake(asio::ssl::stream_base::server,
+            asio::bind_cancellation_slot(token, asio::use_awaitable));
+        co_await process_session(ssl_stream, token);
+    } else
+    {
+        co_await process_session(socket, token);
+    }
+}
+
+template <typename Socket>
+asio::awaitable<Request> Server::do_read(Socket &socket, asio::cancellation_slot token) {
     Request req;
     asio::streambuf buf;
 
@@ -90,8 +105,8 @@ asio::awaitable<Request> Server::do_read(tcp::socket &socket, asio::cancellation
     co_return req;
 }
 
-
-asio::awaitable<void> Server::do_write(tcp::socket &socket, const Response &response, asio::cancellation_slot token) {
+template <typename Socket>
+asio::awaitable<void> Server::do_write(Socket &socket, const Response &response, asio::cancellation_slot token) {
     std::string payload = response.to_string();
 
     co_await asio::async_write(socket, asio::buffer(payload), asio::bind_cancellation_slot(token, asio::use_awaitable));

@@ -1,4 +1,5 @@
 #include <asio.hpp>
+#include <asio/ssl.hpp>
 #include <asio/awaitable.hpp>
 #include <asio/use_awaitable.hpp>
 #include <asio/experimental/awaitable_operators.hpp>
@@ -11,8 +12,9 @@ using asio::co_spawn;
 using asio::detached;
 using asio::ip::tcp;
 using namespace asio::experimental::awaitable_operators;
+using ssl_socket = asio::ssl::stream<tcp::socket>;
 
-awaitable<void> do_read(tcp::socket &socket) {
+awaitable<void> do_read(ssl_socket &socket) {
     try {
         std::vector<char> buf(1024);
         while (true) {
@@ -25,7 +27,7 @@ awaitable<void> do_read(tcp::socket &socket) {
     }
 }
 
-awaitable<void> do_write(tcp::socket &socket) {
+awaitable<void> do_write(ssl_socket &socket) {
     try {
         while (true) {
             std::string line;
@@ -47,7 +49,7 @@ awaitable<void> do_write(tcp::socket &socket) {
             co_await asio::async_write(socket, asio::buffer(req_str), asio::use_awaitable);
         }
 
-        socket.close();
+        socket.lowest_layer().close();
     } catch (std::exception &e) {
         std::cout << "Write stopped: " << e.what() << "\n";
     }
@@ -66,11 +68,19 @@ int main(int argc, char *argv[]) {
         }
         asio::io_context io_context;
 
+        asio::ssl::context ssl_ctx(asio::ssl::context::tls_client);
+        // ssl_ctx.set_verify_mode(asio::ssl::verify_none);
+
         tcp::resolver resolver(io_context);
         auto endpoints = resolver.resolve("127.0.0.1", port);
-        tcp::socket socket(io_context);
-        asio::connect(socket, endpoints);
-        std::cout << "Connected to server.\n";
+        // tcp::socket socket(io_context);
+        // asio::connect(socket, endpoints);
+        // std::cout << "Connected to server.\n";
+
+        ssl_socket socket(io_context, ssl_ctx);
+        asio::connect(socket.lowest_layer(), endpoints);
+        socket.handshake(asio::ssl::stream_base::client);
+        std::cout << "Connected securely to server.\n";
 
         co_spawn(io_context, do_read(socket), detached);
         co_spawn(io_context, do_write(socket), detached);

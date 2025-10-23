@@ -16,6 +16,9 @@ FetchContent_MakeAvailable(asio)
 
 set(ASIO_INCLUDE_DIR "${asio_SOURCE_DIR}/asio/include")
 
+# ===== Find OpenSSL =====
+find_package(OpenSSL REQUIRED)
+
 add_library(my_http_lib
         src/server.cpp
         src/http/request.cpp
@@ -26,6 +29,12 @@ target_include_directories(my_http_lib
         PUBLIC
         ${CMAKE_SOURCE_DIR}/include
         ${ASIO_INCLUDE_DIR}
+)
+
+target_link_libraries(my_http_lib
+        PRIVATE
+        OpenSSL::SSL
+        OpenSSL::Crypto
 )
 
 if(UNIX)

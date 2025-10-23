@@ -2,6 +2,7 @@
 #define ASIO_CANCEL_SERVER_H
 
 #include <asio.hpp>
+#include <asio/ssl.hpp>
 #include <memory>
 #include <vector>
 #include "http/request.h"
@@ -14,9 +15,22 @@ class Server : public std::enable_shared_from_this<Server> {
 public:
     using tcp = asio::ip::tcp;
 
-    explicit Server(asio::io_context &io_context, const asio::ip::address &address, unsigned short port)
+    explicit Server(asio::io_context &io_context, const asio::ip::address &address, unsigned short port,
+        bool use_ssl = false)
         : io_context_(io_context),
-          acceptor_(io_context_, tcp::endpoint(address, port)) {
+          acceptor_(io_context_, tcp::endpoint(address, port)),
+          use_ssl_(use_ssl), ssl_context_(asio::ssl::context::tls_server) {
+        if (use_ssl_)
+        {
+            ssl_context_.set_options(
+            asio::ssl::context::default_workarounds |
+                asio::ssl::context::no_sslv2 |
+                asio::ssl::context::single_dh_use);
+
+            ssl_context_.use_certificate_chain_file("certs/cert.pem");
+            ssl_context_.use_private_key_file("certs/key.pem", asio::ssl::context::pem);
+            ssl_context_.use_tmp_dh_file("certs/dhparam.pem");
+        }
     }
 
     // Method Interfaces
@@ -42,13 +56,21 @@ private:
     void add_route(Method method, std::string path, Handler handler);
     asio::awaitable<Response> handle_request(const Request& request);
 
+    template<typename Socket>
+    asio::awaitable<void> process_session(Socket &socket, asio::cancellation_slot token);
+
 
     asio::awaitable<void> do_accept();
-    asio::awaitable<Request> do_read(tcp::socket &socket, asio::cancellation_slot token);
-    asio::awaitable<void> do_write(tcp::socket &socket, const Response & response, asio::cancellation_slot token);
+    template <typename Socket>
+    asio::awaitable<Request> do_read(Socket &socket, asio::cancellation_slot token);
+    template <typename Socket>
+    asio::awaitable<void> do_write(Socket &socket, const Response & response, asio::cancellation_slot token);
 
     asio::io_context &io_context_;
     asio::ip::tcp::acceptor acceptor_;
+
+    bool use_ssl_;
+    asio::ssl::context ssl_context_;
 
     std::optional<asio::executor_work_guard<asio::io_context::executor_type> > work_guard_;
     std::vector<std::thread> workers_;
