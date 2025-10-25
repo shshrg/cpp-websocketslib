@@ -1,7 +1,6 @@
 #ifndef WEBSOCKETLIB_HTTP_REQUEST_H
 #define WEBSOCKETLIB_HTTP_REQUEST_H
 #include <chrono>
-#include <functional>
 #include <map>
 #include <regex>
 #include <string>
@@ -46,9 +45,8 @@ struct CaseInsensitiveEqual {
     }
 };
 
-using Headers = std::unordered_multimap<std::string, std::string, CaseInsensitiveHash, CaseInsensitiveEqual>;
+using Headers = std::unordered_map<std::string, std::string, CaseInsensitiveHash, CaseInsensitiveEqual>;
 using Params = std::multimap<std::string, std::string>;
-
 
 struct Request {
     Method method = Method::UNKNOWN;
@@ -63,8 +61,7 @@ struct Request {
 
 
     bool has_header(const std::string & key) const;
-    std::string get_header_value(const std::string & key, size_t id = 0) const;
-    size_t get_header_value_count(const std::string & key) const;
+    std::string get_header_value(const std::string & key) const;
 
     bool has_param(const std::string & key) const;
     std::string get_param_value(const std::string & key, size_t id = 0) const;

@@ -39,6 +39,11 @@ target_link_libraries(my_http_lib
 
 if(UNIX)
     target_link_libraries(my_http_lib PRIVATE pthread)
+    find_library(LIBURING_LIBRARY NAMES uring)
+    if (LIBURING_LIBRARY)
+        target_link_libraries(my_http_lib PRIVATE "${LIBURING_LIBRARY}")
+        target_compile_definitions(my_http_lib PUBLIC ASIO_HAS_IO_URING HAVE_ASIO_FILE_IO)
+    endif ()
 endif()
 
 # --- Executable server_app

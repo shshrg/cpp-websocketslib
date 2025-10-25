@@ -4,12 +4,37 @@
 #include <asio.hpp>
 #include <asio/ssl.hpp>
 #include <memory>
+#include <utility>
 #include <vector>
 #include "http/request.h"
 #include "http/response.h"
+#include <filesystem>
 
-using Handler = std::function<asio::awaitable<Response>(const Request &)>;
+using HandlerAsync = std::function<asio::awaitable<Response>(const Request &)>;
+using HandlerSync = std::function<Response(const Request &)>;
 
+namespace fs = std::filesystem;
+
+// Just check the return type of handler
+template<class F>
+using call_result_t = std::invoke_result_t<F, const Request &>;
+
+// concept is a set of requirements
+// i.e. some constraint onto the macro to distinguish between SyncHandler and AsyncHandler
+template<class F>
+concept SyncConstraint = std::is_same_v<call_result_t<F>, Response>;
+
+// Need a constraint here to differ between make_async in add_route
+template<class F>
+concept AsyncConstraint = std::is_same_v<call_result_t<F>, asio::awaitable<Response>>;
+
+struct PrefixComparator {
+    bool operator()(const std::string& a, const std::string& b) const {
+        if (a.size() != b.size())
+            return a.size() > b.size();
+        return a < b;
+    }
+};
 
 class Server : public std::enable_shared_from_this<Server> {
 public:
@@ -34,14 +59,26 @@ public:
     }
 
     // Method Interfaces
-    void Get(std::string path, Handler handler) { add_route(Method::GET, std::move(path), std::move(handler)); }
-    void Post(std::string path, Handler handler) { add_route(Method::POST, std::move(path), std::move(handler)); }
-    void Put(std::string path, Handler handler) { add_route(Method::PUT, std::move(path), std::move(handler)); }
-    void Delete(std::string path, Handler handler) { add_route(Method::DELETE, std::move(path), std::move(handler)); }
+    template<typename F>
+    void Get(std::string path, F h) { add_route(Method::GET, std::move(path), std::move(h)); }
+
+    template<typename F>
+    void Post(std::string path, F h) { add_route(Method::POST, std::move(path), std::move(h)); }
+
+    template<typename F>
+    void Put(std::string path, F h) { add_route(Method::PUT, std::move(path), std::move(h)); }
+
+    template<typename F>
+    void Delete(std::string path, F h) { add_route(Method::DELETE, std::move(path), std::move(h)); }
+
+    // Mount Static
+    void MountStatic(std::string url_prefix, fs::path root);
 
 
     void start(size_t worker_threads);
     void stop();
+
+    void post_task(std::function<void()> task);
 
 private:
     // Client handling
@@ -53,7 +90,29 @@ private:
     void remove_client(size_t client_id);
 
     // Routing
-    void add_route(Method method, std::string path, Handler handler);
+    template<typename F>
+    void add_route(Method method, std::string path, F h) {
+        routes_[method].emplace(std::move(path), make_async(std::move(h)));
+    }
+
+
+    // Convert to awaitable
+    template<SyncConstraint F>
+    HandlerAsync make_async(F h) {
+        return [fn = std::move(h)](const Request &req) -> asio::awaitable<Response> {
+            co_return fn(req);
+        };
+    }
+
+    template<AsyncConstraint F>
+    HandlerAsync make_async(F h) {
+        return [fn = std::move(h)](const Request &req) -> asio::awaitable<Response> {
+            co_return co_await fn(req);
+        };
+    }
+
+    asio::awaitable<Response> serve_static(const Request & req);
+
     asio::awaitable<Response> handle_request(const Request& request);
 
     template<typename Socket>
@@ -81,7 +140,10 @@ private:
     std::mutex mutex_;
     std::unordered_map<size_t, asio::cancellation_signal> client_cancel_;
 
-    std::unordered_map<Method, std::unordered_map<std::string, Handler>> routes_;
+    std::unordered_map<Method, std::unordered_map<std::string, HandlerAsync> > routes_;
+
+    // Serve Static
+    std::map<std::string, fs::path, PrefixComparator> static_mounts_;
 };
 
 

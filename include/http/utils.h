@@ -3,7 +3,6 @@
 
 #include "request.h"
 
-
 inline std::string ltrim(std::string s) {
     s.erase(s.begin(),
             std::ranges::find_if(s, [](unsigned char c) { return !std::isspace(c); }));
@@ -79,7 +78,7 @@ inline void parse_http_request(const std::string &data, Request &req) {
         if (pos < line.size() && line[pos] == ' ') ++pos;
         std::string value = trim(line.substr(pos));
 
-        req.headers.emplace(std::move(key), std::move(value));
+        req.headers[key] = std::move(value);
     }
 }
 

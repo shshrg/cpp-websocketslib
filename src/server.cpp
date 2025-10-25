@@ -4,7 +4,7 @@
 #include <thread>
 #include "http/utils.h"
 #include "io_helpers.h"
-
+#include <asio/stream_file.hpp>
 
 void Server::start(size_t worker_threads) {
     if (work_guard_) return;
@@ -61,9 +61,8 @@ asio::awaitable<void> Server::do_accept() {
     }
 }
 
-template <typename Socket>
-asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation_slot token)
-{
+template<typename Socket>
+asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation_slot token) {
     Request req = co_await do_read(socket, token);
     std::cout << req.to_string() << "\n";
 
@@ -71,24 +70,39 @@ asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation
     co_await do_write(socket, resp, token);
 }
 
+asio::awaitable<Response> Server::handle_request(const Request &req) {
+    auto method_it = routes_.find(req.method);
+    if (method_it == routes_.end()) co_return Response::not_found();
+
+    auto &table = method_it->second;
+
+    if (auto it = table.find(req.path); it != table.end()) {
+        co_return co_await it->second(req);
+    }
+
+    if (!static_mounts_.empty()) {
+        Response res = co_await serve_static(req);
+        if (res.status != NotFound_404)
+            co_return res;
+    }
+    co_return Response::not_found();
+}
 
 asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id) {
     asio::cancellation_slot token = get_client_slot(client_id);
 
-    if (use_ssl_)
-    {
+    if (use_ssl_) {
         std::cout << "Client " << client_id << " use TLS\n";
         asio::ssl::stream<tcp::socket> ssl_stream(std::move(socket), ssl_context_);
         co_await ssl_stream.async_handshake(asio::ssl::stream_base::server,
-            asio::bind_cancellation_slot(token, asio::use_awaitable));
+                                            asio::bind_cancellation_slot(token, asio::use_awaitable));
         co_await process_session(ssl_stream, token);
-    } else
-    {
+    } else {
         co_await process_session(socket, token);
     }
 }
 
-template <typename Socket>
+template<typename Socket>
 asio::awaitable<Request> Server::do_read(Socket &socket, asio::cancellation_slot token) {
     Request req;
     asio::streambuf buf;
@@ -105,11 +119,39 @@ asio::awaitable<Request> Server::do_read(Socket &socket, asio::cancellation_slot
     co_return req;
 }
 
-template <typename Socket>
+template<typename Socket>
 asio::awaitable<void> Server::do_write(Socket &socket, const Response &response, asio::cancellation_slot token) {
     std::string payload = response.to_string();
 
     co_await asio::async_write(socket, asio::buffer(payload), asio::bind_cancellation_slot(token, asio::use_awaitable));
+
+    if (!response.sendfile_path.empty()) {
+        asio::stream_file file(co_await asio::this_coro::executor);
+        std::error_code ec;
+        file.open(response.sendfile_path.string().c_str(), asio::file_base::read_only, ec);
+        if (ec) co_return;
+
+        std::array<char, 64 * 1024> buffer{};
+        while (true) {
+            std::size_t read_bytes = 0;
+            std::error_code wec;
+            std::tie(ec, read_bytes) = co_await file.async_read_some(
+                asio::buffer(buffer), asio::as_tuple(asio::bind_cancellation_slot(token, asio::use_awaitable))
+            );
+
+            if (wec == asio::error::eof)
+                break;
+
+            if (read_bytes == 0) break;
+
+            co_await asio::async_write(
+                socket, asio::buffer(buffer.data(), read_bytes),
+                asio::bind_cancellation_slot(token, asio::use_awaitable)
+            );
+        }
+
+        file.close();
+    }
 }
 
 void Server::add_client(size_t client_id) {
@@ -149,19 +191,84 @@ void Server::remove_client(size_t client_id) {
     client_cancel_.erase(client_id);
 }
 
+static std::string ext_type(const std::string &ext) {
+    std::string e = ext;
+    if (!e.empty() && e.front() == '.')
+        e.erase(0, 1);
 
-void Server::add_route(Method method, std::string path, Handler handler) {
-    routes_[method].emplace(std::move(path), std::move(handler));
+    for (auto &ch: e) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+
+    static const std::unordered_map<std::string, std::string> k = {
+        {"html", "text/html; charset=utf-8"},
+        {"htm", "text/html; charset=utf-8"},
+        {"css", "text/css"},
+        {"js", "application/javascript"},
+        {"mjs", "application/javascript"},
+        {"json", "application/json"},
+        {"txt", "text/plain; charset=utf-8"},
+        {"xml", "application/xml"},
+        {"svg", "image/svg+xml"},
+        {"png", "image/png"},
+        {"jpg", "image/jpeg"},
+        {"jpeg", "image/jpeg"},
+        {"gif", "image/gif"},
+        {"webp", "image/webp"},
+        {"ico", "image/x-icon"},
+        {"pdf", "application/pdf"},
+        {"wasm", "application/wasm"},
+        {"mp4", "video/mp4"}
+    };
+
+    auto it = k.find(e);
+    return (it != k.end()) ? it->second : std::string("application/octet-stream");
 }
 
+asio::awaitable<Response> Server::serve_static(const Request &req) {
+    if (req.method != Method::GET)
+        co_return Response::bad_request("Method not supported");
 
-asio::awaitable<Response> Server::handle_request(const Request &request) {
-    auto it_method = routes_.find(request.method);
-    if (it_method != routes_.end()) {
-        auto it_path = it_method->second.find(request.path);
-        if (it_path != it_method->second.end()) {
-            co_return co_await it_path->second(request);
+    std::string url_prefix;
+    fs::path root;
+
+    for (auto &[prefix, rt]: static_mounts_) {
+        if (req.path.starts_with(prefix)) {
+            url_prefix = prefix;
+            root = rt;
+            break;
         }
     }
-    co_return Response::not_found();
+    if (url_prefix.empty())
+        co_return Response::not_found("Mount does not exist");
+
+    std::string tail = req.path.substr(url_prefix.size());
+    if (tail.empty() || tail.back() == '/')
+        tail = tail + "index.html";
+
+    fs::path srv_path = root / fs::path(tail);
+    std::error_code ec;
+
+    fs::path canon_srv_path = weakly_canonical(srv_path, ec);
+    if (ec || canon_srv_path.native().compare(0, root.native().size(), root.native()) != 0)
+        co_return Response::not_found("Different root path");
+
+    Response res = Response::text("OK");
+
+    if (!fs::exists(canon_srv_path, ec) || ec)
+        co_return Response::not_found("File not found in root directory");
+
+    res.set_header("content-type", ext_type(canon_srv_path.extension()));
+
+    res.sendfile_path = canon_srv_path;
+    res.sendfile_size = fs::file_size(canon_srv_path);
+    co_return res;
+}
+
+void Server::MountStatic(std::string url_prefix, fs::path root) {
+    if (!root.empty() && root.is_relative())
+        root = fs::weakly_canonical(root);
+    static_mounts_.emplace(std::move(url_prefix), std::move(root));
+}
+
+void Server::post_task(std::function<void()> task) {
+    asio::post(io_context_, std::move(task));
 }

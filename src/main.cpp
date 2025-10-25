@@ -29,15 +29,28 @@ int main(int argc, char *argv[]) {
 
     asio::io_context io_context;
 
-	auto address = asio::ip::make_address("0.0.0.0");
-    Server server(io_context, address, port, true);
+    auto address = asio::ip::make_address("0.0.0.0");
+    Server server(io_context, address, port, false);
 
     server.Get("/hello", [](const Request &request) -> asio::awaitable<Response> {
-        co_return Response::text("OK");
+        co_return Response::text("This was a get method from async");
     });
+
+    server.Post("/hello", [](const Request &request) {
+        return Response::text("This was a post method from sync");
+    });
+
+    server.MountStatic("/", "./www");
+    server.MountStatic("/assets/", "./www/assets");
+    server.MountStatic("/assets/ui", "./www/assets/ui");
 
     server.start(num_threads);
     std::cout << "Server started on port " << port << "\n";
+    auto test_func = []() {
+        std::cout << "Task sent using post_task" << std::endl;
+    };
+
+    server.post_task(test_func);
 
     std::cin.get();
     server.stop();

@@ -14,15 +14,37 @@ using asio::ip::tcp;
 using namespace asio::experimental::awaitable_operators;
 using ssl_socket = asio::ssl::stream<tcp::socket>;
 
-awaitable<void> do_read(ssl_socket &socket) {
+awaitable<void> do_read(ssl_socket& socket) {
     try {
-        std::vector<char> buf(1024);
-        while (true) {
-            std::size_t n = co_await socket.async_read_some(asio::buffer(buf), asio::use_awaitable);
-            std::string data(buf.data(), n);
-            std::cout << "Server replied: " << data << "\n";
+        // 1) Read one line ending with CRLF
+        std::string buffer; // dynamic buffer target
+        std::size_t n = co_await asio::async_read_until(
+            socket,
+            asio::dynamic_buffer(buffer),
+            "\r\n\r\n",
+            asio::use_awaitable
+        );
+
+        // Extract the line without trailing CRLF
+        std::string headers = buffer.substr(0, n - 4);
+        std::cout << "=== HEADERS ===\n" << headers << "\n";
+        // 2) Whatever remains after the delimiter is the beginning of the body
+        buffer.erase(0, n);
+        if (!buffer.empty()) {
+            std::cout << "[BODY CHUNK] " << buffer;
+            std::cout.flush();
+            buffer.clear();
         }
-    } catch (std::exception &e) {
+
+        // 3) Read body until EOF
+        std::array<char, 8192> tmp{};
+        for (;;) {
+            std::size_t m = co_await socket.async_read_some(asio::buffer(tmp), asio::use_awaitable);
+            std::cout.write(tmp.data(), static_cast<std::streamsize>(m));
+            std::cout.flush();
+        }
+    } catch (const std::exception& e) {
+        // Will print "End of file" on clean shutdown by the peer
         std::cout << "Read stopped: " << e.what() << "\n";
     }
 }
@@ -37,7 +59,7 @@ awaitable<void> do_write(ssl_socket &socket) {
             Request request;
             request.method = Method::GET;
             request.version = "HTTP/1.1";
-            request.target = "/hello";
+            request.target = "/index.html";
 
             request.headers.emplace("Host", "localhost");
             request.headers.emplace("Content-Length", std::to_string(line.size()));

@@ -17,11 +17,12 @@ struct Response {
 
 
     bool has_header(const std::string &key) const;
-    std::string get_header_value(const std::string &key, size_t id = 0) const;
-    size_t get_header_value_count(const std::string &key) const;
+    std::string get_header_value(const std::string &key) const;
 
     void set_content(const std::string &s, const std::string &content_type);
     void set_redirect(const std::string &url, int st = Found_302);
+
+    void set_header(const std::string &key, const std::string &value);
 
     std::optional<size_t> content_length() const;
     std::string content_type() const;
@@ -31,8 +32,6 @@ struct Response {
     static Response html(const std::string& s, int st = OK_200);
     static Response not_found(const std::string &what = "Not Found");
     static Response bad_request(const std::string &message = "Bad Request");
-    static Response serve_static(const fs::path &doc_root,
-                                 const std::string &url_path);
     static std::string_view reason_phrase(int st) noexcept;
 
     std::string to_string() const;

@@ -6,18 +6,9 @@ bool Request::has_header(const std::string &key) const {
     return headers.contains(key);
 }
 
-std::string Request::get_header_value(const std::string &key, size_t id) const {
-    auto [it, end] = headers.equal_range(key);
-    for (size_t i = 0; it != end; ++it, ++i) {
-        if (i == id)
-            return it->second;
-    }
-    return "";
-}
-
-size_t Request::get_header_value_count(const std::string &key) const {
-    auto [it, end] = headers.equal_range(key);
-    return std::distance(it, end);
+std::string Request::get_header_value(const std::string &key) const {
+    auto it = headers.find(key);
+    return (it == headers.end()) ? std::string{} : it->second;
 }
 
 
@@ -41,7 +32,7 @@ size_t Request::get_param_value_count(const std::string &key) const {
 
 
 std::optional<size_t> Request::content_length() const {
-    auto s = get_header_value("Content-Length");
+    auto s = get_header_value("content-length");
     if (s.empty()) return std::nullopt;
     try {
         size_t index = 0;
@@ -55,7 +46,7 @@ std::optional<size_t> Request::content_length() const {
 
 
 std::string Request::content_type() const {
-    return get_header_value("Content-Type");
+    return get_header_value("content-type");
 }
 
 std::string Request::method_str(Method m) noexcept {
@@ -102,7 +93,7 @@ std::string Request::to_string() const {
         ss << h.first << ": " << h.second << "\r\n";
     }
 
-    if (!body.empty() && !headers.contains("Content-Length")) {
+    if (!body.empty() && !headers.contains("content-length")) {
         ss << "Content-Length: " << body.size() << "\r\n";
     }
 
