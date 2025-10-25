@@ -43,6 +43,12 @@ int main(int argc, char *argv[]) {
     server.start(num_threads);
     std::cout << "Server started on port " << port << "\n";
 
+    auto test_func = [](){
+        std::cout << "Task sent using post_task" << std::endl;
+    };
+    
+    server.post_task(test_func);
+
     std::cin.get();
     server.stop();
 

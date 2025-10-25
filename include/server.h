@@ -49,6 +49,7 @@ public:
 
     void start(size_t worker_threads);
     void stop();
+    void post_task(std::function<void()> task);
 
 private:
     // Client handling

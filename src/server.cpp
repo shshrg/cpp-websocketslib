@@ -146,3 +146,9 @@ asio::awaitable<Response> Server::handle_request(const Request &request) {
     }
     co_return Response::not_found();
 }
+
+
+void Server::post_task(std::function<void()> task)
+{
+    asio::post(io_context_, std::move(task));
+}
