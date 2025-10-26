@@ -120,10 +120,8 @@ asio::awaitable<Request> Server::do_read(Socket &socket, asio::cancellation_slot
 }
 
 template<typename Socket>
-asio::awaitable<void> Server::do_write(Socket &socket, const Response &response, asio::cancellation_slot token) {
-    std::string payload = response.to_string();
-
-    co_await asio::async_write(socket, asio::buffer(payload), asio::bind_cancellation_slot(token, asio::use_awaitable));
+asio::awaitable<void> Server::do_write(Socket &socket, const Response &response_in, asio::cancellation_slot token) {
+    Response response = response_in;
 
     if (!response.sendfile_path.empty()) {
         asio::stream_file file(co_await asio::this_coro::executor);
@@ -131,27 +129,40 @@ asio::awaitable<void> Server::do_write(Socket &socket, const Response &response,
         file.open(response.sendfile_path.string().c_str(), asio::file_base::read_only, ec);
         if (ec) co_return;
 
-        std::array<char, 64 * 1024> buffer{};
-        while (true) {
-            std::size_t read_bytes = 0;
-            std::error_code wec;
-            std::tie(ec, read_bytes) = co_await file.async_read_some(
-                asio::buffer(buffer), asio::as_tuple(asio::bind_cancellation_slot(token, asio::use_awaitable))
-            );
+        auto file_sz = file.size(ec);
+        try {
+            if (!ec && file_sz > 0) {
+                response.body.resize(file_sz);
+                size_t off = 0;
+                while (off < response.body.size()) {
+                    size_t read_bytes = co_await file.async_read_some(
+                        asio::buffer(response.body.data() + off, response.body.size() - off),
+                        asio::bind_cancellation_slot(token, asio::use_awaitable));
 
-            if (wec == asio::error::eof)
-                break;
+                    if (read_bytes == 0) break;
+                    off += read_bytes;
+                }
+                response.body.resize(off);
+            } else {
+                std::array<char, 64 * 1024> buffer{};
+                while (true) {
+                    std::size_t read_bytes = co_await file.async_read_some(
+                        asio::buffer(buffer),
+                        asio::bind_cancellation_slot(token, asio::use_awaitable));
 
-            if (read_bytes == 0) break;
+                    if (read_bytes == 0) break;
 
-            co_await asio::async_write(
-                socket, asio::buffer(buffer.data(), read_bytes),
-                asio::bind_cancellation_slot(token, asio::use_awaitable)
-            );
+                    response.body.append(buffer.data(), read_bytes);
+                }
+            }
+        } catch (...) {
+            file.close();
         }
 
-        file.close();
+        response.set_header("Content-Length", std::to_string(response.body.size()));
     }
+    std::string payload = response.to_string();
+    co_await asio::async_write(socket, asio::buffer(payload), asio::bind_cancellation_slot(token, asio::use_awaitable));
 }
 
 void Server::add_client(size_t client_id) {
