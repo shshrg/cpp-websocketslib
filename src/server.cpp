@@ -170,10 +170,13 @@ asio::cancellation_slot Server::get_client_slot(size_t client_id) {
 
 
 void Server::emit_client(size_t client_id) {
-    std::lock_guard lock(mutex_);
-    auto it = client_cancel_.find(client_id);
-    if (it != client_cancel_.end())
-        it->second.emit(asio::cancellation_type::all);
+    asio::cancellation_signal *sig = nullptr;
+    {
+        std::lock_guard lk(mutex_);
+        auto it = client_cancel_.find(client_id);
+        if (it != client_cancel_.end()) sig = &it->second;
+    }
+    if (sig) sig->emit(asio::cancellation_type::all);
 }
 
 void Server::emit_all() {
