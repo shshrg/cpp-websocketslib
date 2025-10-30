@@ -48,15 +48,8 @@ asio::awaitable<void> Server::do_accept() {
 
         std::cout << "New client connected: " << client_id << "\n";
 
-        // Add cancellation signal bind to the client
-        add_client(client_id);
-
         asio::co_spawn(io_context_,
-                       [this, &socket, client_id]() -> asio::awaitable<void> {
-                           co_await handle_client(std::move(socket), client_id);
-                           remove_client(client_id);
-                           co_return;
-                       },
+                       handle_client(std::move(socket), client_id),
                        asio::detached);
     }
 }
@@ -89,6 +82,7 @@ asio::awaitable<Response> Server::handle_request(const Request &req) {
 }
 
 asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id) {
+    add_client(client_id);
     asio::cancellation_slot token = get_client_slot(client_id);
 
     if (use_ssl_) {
@@ -100,6 +94,8 @@ asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id
     } else {
         co_await process_session(socket, token);
     }
+    remove_client(client_id);
+    co_return;
 }
 
 template<typename Socket>
@@ -130,33 +126,29 @@ asio::awaitable<void> Server::do_write(Socket &socket, const Response &response_
         if (ec) co_return;
 
         auto file_sz = file.size(ec);
-        try {
-            if (!ec && file_sz > 0) {
-                response.body.resize(file_sz);
-                size_t off = 0;
-                while (off < response.body.size()) {
-                    size_t read_bytes = co_await file.async_read_some(
-                        asio::buffer(response.body.data() + off, response.body.size() - off),
-                        asio::bind_cancellation_slot(token, asio::use_awaitable));
+        if (!ec && file_sz > 0) {
+            response.body.resize(file_sz);
+            size_t off = 0;
+            while (off < response.body.size()) {
+                size_t read_bytes = co_await file.async_read_some(
+                    asio::buffer(response.body.data() + off, response.body.size() - off),
+                    asio::bind_cancellation_slot(token, asio::use_awaitable));
 
-                    if (read_bytes == 0) break;
-                    off += read_bytes;
-                }
-                response.body.resize(off);
-            } else {
-                std::array<char, 64 * 1024> buffer{};
-                while (true) {
-                    std::size_t read_bytes = co_await file.async_read_some(
-                        asio::buffer(buffer),
-                        asio::bind_cancellation_slot(token, asio::use_awaitable));
-
-                    if (read_bytes == 0) break;
-
-                    response.body.append(buffer.data(), read_bytes);
-                }
+                if (read_bytes == 0) break;
+                off += read_bytes;
             }
-        } catch (...) {
-            file.close();
+            response.body.resize(off);
+        } else {
+            std::array<char, 64 * 1024> buffer{};
+            while (true) {
+                std::size_t read_bytes = co_await file.async_read_some(
+                    asio::buffer(buffer),
+                    asio::bind_cancellation_slot(token, asio::use_awaitable));
+
+                if (read_bytes == 0) break;
+
+                response.body.append(buffer.data(), read_bytes);
+            }
         }
 
         response.set_header("Content-Length", std::to_string(response.body.size()));
