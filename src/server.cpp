@@ -85,6 +85,11 @@ asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id
     add_client(client_id);
     asio::cancellation_slot token = get_client_slot(client_id);
 
+    struct ScopeErase {
+        Server* self; size_t id;
+        ~ScopeErase(){ self->remove_client(id); }
+    } guard{ this, client_id };
+
     if (use_ssl_) {
         std::cout << "Client " << client_id << " use TLS\n";
         asio::ssl::stream<tcp::socket> ssl_stream(std::move(socket), ssl_context_);
