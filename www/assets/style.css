@@ -1,0 +1,4 @@
+body { font-family: system-ui, sans-serif; margin: 2rem; }
+header { display: flex; align-items: center; gap: 1rem; }
+h1 { margin: 0; }
+button { padding: .5rem 1rem; border-radius: .5rem; border: 1px solid #ccc; }

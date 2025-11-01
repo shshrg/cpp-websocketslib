@@ -6,7 +6,6 @@ out/
 bin/
 lib/
 obj/
-www/
 
 # --- CMake / Ninja / Make ---
 CMakeCache.txt
