@@ -21,16 +21,18 @@ elif [[ -f "$CERT_FILE" && ! -f "$KEY_FILE" ]]; then
 elif [[ ! -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
     echo "Generating self-signed certificate using existing private key..."
     openssl req -new -x509 -key "$KEY_FILE" -out "$CERT_FILE" -days $DAYS_VALID \
-        -subj "/C=US/ST=State/L=City/O=Org/OU=Unit/CN=localhost" || {
+        -subj "/C=US/ST=State/L=City/O=Org/OU=Unit/CN=localhost" \
+        -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" || {
         echo "Error: Failed to generate certificate!" >&2
         exit 1
     }
 
 else
-    echo "Generating new private key and self-signed certificate..."
-    openssl req -newkey rsa:$KEY_BITS -nodes -keyout "$KEY_FILE" \
-        -x509 -days $DAYS_VALID -out "$CERT_FILE" \
-        -subj "/C=US/ST=State/L=City/O=Org/OU=Unit/CN=localhost" || {
+    echo "Generating new private key and self-signed certificate with SAN..."
+    openssl req -x509 -newkey rsa:$KEY_BITS -nodes -keyout "$KEY_FILE" \
+        -out "$CERT_FILE" -days $DAYS_VALID \
+        -subj "/C=US/ST=State/L=City/O=Org/OU=Unit/CN=localhost" \
+        -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" || {
         echo "Error: Failed to generate certificate and key!" >&2
         exit 1
     }

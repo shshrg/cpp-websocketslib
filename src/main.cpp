@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
 
     auto address = asio::ip::make_address("0.0.0.0");
     // TODO: make it so that google can access the server path
-    Server server(io_context, address, port, false);
+    Server server(io_context, address, port, true);
 
     server.Get("/hello", [](const Request &request) -> asio::awaitable<Response> {
         co_return Response::text("This was a get method from async");
