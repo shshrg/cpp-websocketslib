@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>WebSocket Echo Test</title>
+</head>
+<body>
+<h1>WebSocket Echo Test</h1>
+<input id="msg" type="text" placeholder="Введіть повідомлення">
+<button id="send">Надіслати</button>
+<pre id="log"></pre>
+
+<script>
+    const log = document.getElementById('log');
+    const ws = new WebSocket('ws://127.0.0.1:8080/chat');
+
+    ws.onopen = () => log.textContent += '👉 Підключено\n';
+    ws.onmessage = e => log.textContent += '📥 Echo: ' + e.data + '\n';
+    ws.onerror   = e => log.textContent += '❌ Помилка: ' + e + '\n';
+    ws.onclose   = () => log.textContent += '🔌 Відключено\n';
+
+    document.getElementById('send').onclick = () => {
+        const txt = document.getElementById('msg').value;
+        ws.send(txt);
+        log.textContent += '📤 Sent: ' + txt + '\n';
+    };
+</script>
+</body>
+</html>

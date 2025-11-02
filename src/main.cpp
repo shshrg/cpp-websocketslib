@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
     asio::io_context io_context;
 
     auto address = asio::ip::make_address("0.0.0.0");
-    Server server(io_context, address, port, true);
+    Server server(io_context, address, port, false);
 
     server.Get("/hello", [](const Request &request) -> asio::awaitable<Response> {
         co_return Response::text("This was a get method from async");
@@ -43,6 +43,17 @@ int main(int argc, char *argv[]) {
     server.MountStatic("/", "./www");
     server.MountStatic("/assets/", "./www/assets");
     server.MountStatic("/assets/ui", "./www/assets/ui");
+
+    server.WebSocket("/chat")
+            .on_open([] {
+                std::cout << "WebSocket opened\n";
+            })
+            .on_message([](std::string_view msg) {
+                std::cout << "WebSocket message received\n";
+            })
+            .on_close([](uint16_t code, std::string_view reason) {
+                std::cout << "WebSocket closed\n";
+            });
 
     server.start(num_threads);
     std::cout << "Server started on port " << port << "\n";

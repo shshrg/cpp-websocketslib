@@ -75,6 +75,8 @@ struct Request {
     static Method method_enum(const std::string & s) noexcept;
 
     bool has_content_type(const std::string & sub_type) const;
+
+    bool is_ws_upgrade() const;
 };
 
 

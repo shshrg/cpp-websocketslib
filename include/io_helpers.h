@@ -15,7 +15,7 @@ inline std::string take_front(asio::streambuf &buf, std::size_t n) {
 
 
 template <typename Socket>
-inline asio::awaitable<std::string>
+ asio::awaitable<std::string>
 co_read_headers(Socket &socket,
                 asio::streambuf &buffer,
                 asio::cancellation_slot token) {
@@ -27,7 +27,7 @@ co_read_headers(Socket &socket,
 }
 
 template <typename Socket>
-inline asio::awaitable<std::string>
+ asio::awaitable<std::string>
 co_read_body(Socket &socket,
              asio::streambuf &buffer,
              std::size_t content_len,

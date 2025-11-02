@@ -2,6 +2,48 @@
 #define WEBSOCKETLIB_UTILS_H
 
 #include "request.h"
+#include <openssl/sha.h>
+
+inline std::string base64_encode(const unsigned char *src, size_t len) {
+    static const char *tbl = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((len + 2) / 3) * 4);
+    unsigned val = 0;
+    int valb = -6;
+    for (size_t i = 0; i < len; ++i) {
+        val = (val << 8) | src[i];
+        valb += 8;
+        while (valb >= 0) {
+            out.push_back(tbl[(val >> valb) & 0x3F]);
+            valb -= 6;
+        }
+    }
+    if (valb > -6) out.push_back(tbl[((val << 8) >> (valb + 8)) & 0x3F]);
+    while (out.size() % 4) out.push_back('=');
+    return out;
+}
+
+inline std::string ws_accept_key(std::string_view client_key) {
+    static constexpr char kMagic[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    std::string concat;
+    concat.reserve(client_key.size() + 36);
+    concat.append(client_key.data(), client_key.size());
+    concat.append(kMagic, sizeof(kMagic) - 1);
+
+    unsigned char sha1[SHA_DIGEST_LENGTH];
+    SHA1(reinterpret_cast<const unsigned char *>(concat.data()), concat.size(), sha1);
+    return base64_encode(sha1, SHA_DIGEST_LENGTH);
+}
+
+inline Response build_101_response(std::string_view accept_key) {
+    Response resp;
+    resp.status = SwitchingProtocol_101;
+    resp.set_header("Upgrade", "websocket");
+    resp.set_header("Connection", "Upgrade");
+    resp.set_header("Sec-Websocket-Accept", accept_key.data());
+    return resp;
+}
+
 
 inline std::string ltrim(std::string s) {
     s.erase(s.begin(),
@@ -42,8 +84,8 @@ inline void split_target(const std::string &target, std::string &path, Params &q
             size_t eq = param.find('=');
             std::string key = param.substr(0, eq);
             std::string value = (eq == std::string::npos)
-            ? std::string{}
-            : param.substr(eq + 1);
+                                    ? std::string{}
+                                    : param.substr(eq + 1);
             query_params.emplace(std::move(key), std::move(value));
         }
         if (param_sep == std::string::npos) break;

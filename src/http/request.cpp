@@ -103,3 +103,11 @@ std::string Request::to_string() const {
 
     return ss.str();
 }
+
+bool Request::is_ws_upgrade() const {
+    if (!headers.contains("Upgrade") || !headers.contains("Connection") || !headers.contains("Sec-WebSocket-Key")) {
+        return false;
+    }
+    return true;
+}
+

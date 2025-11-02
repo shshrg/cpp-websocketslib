@@ -6,7 +6,7 @@ out/
 bin/
 lib/
 obj/
-
+test_uwebsockets/
 # --- CMake / Ninja / Make ---
 CMakeCache.txt
 CMakeFiles/
