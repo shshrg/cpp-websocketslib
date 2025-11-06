@@ -9,7 +9,8 @@
 #include <filesystem>
 #include "http/request.h"
 #include "http/response.h"
-#include "WsFrame.h"
+#include "websocket/WsFrame.h"
+#include "ws_helpers.h"
 
 using HandlerAsync = std::function<asio::awaitable<Response>(const Request &)>;
 using HandlerSync = std::function<Response(const Request &)>;
@@ -35,17 +36,6 @@ struct PrefixComparator {
             return a.size() > b.size();
         return a < b;
     }
-};
-
-
-using WsOpenHandler = std::function<void()>;
-using WsMessageHandler = std::function<void(std::string_view msg)>;
-using WsCloseHandler = std::function<void(uint16_t code, std::string_view reason)>;
-
-struct WsHandlers {
-    WsOpenHandler on_open{};
-    WsMessageHandler on_message{};
-    WsCloseHandler on_close{};
 };
 
 

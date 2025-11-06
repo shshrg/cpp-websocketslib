@@ -82,135 +82,27 @@ asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation
     co_await do_write(socket, resp, token);
 }
 
-static constexpr uint8_t WS_TEXT = 0x1;
-static constexpr uint8_t WS_CLOSE = 0x8;
-static constexpr uint8_t WS_PING = 0x9;
-static constexpr uint8_t WS_PONG = 0xA;
-
 template<typename Socket>
-asio::awaitable<void> Server::process_session_ws(Socket &socket, const std::string &path, const std::string &sec_ws_key,
-                                                 asio::cancellation_slot token) {
+asio::awaitable<void> Server::process_session_ws(Socket &socket,
+                                         const std::string &path,
+                                         const std::string &sec_ws_key,
+                                         asio::cancellation_slot token)
+{
     std::string accept = ws_accept_key(sec_ws_key);
     Response resp = build_101_response(accept);
     co_await asio::async_write(socket, asio::buffer(resp.to_string()),
                                asio::bind_cancellation_slot(token, asio::use_awaitable));
 
-
     const WsHandlers *handlers = find_ws(path);
-
     if (!handlers) co_return;
 
     if (handlers->on_open) handlers->on_open();
 
-    std::vector<uint8_t> inbuf;
-    inbuf.reserve(4096);
-    std::array<uint8_t, 4096> tmp{};
+    co_await do_read_loop(socket, handlers, token);
 
-    while (true) {
-        std::size_t n = co_await socket.async_read_some(asio::buffer(tmp),
-                                                        asio::bind_cancellation_slot(token, asio::use_awaitable));
-        inbuf.insert(inbuf.end(), tmp.begin(), tmp.begin() + n);
-        while (true) {
-            size_t need = ws_next_frame_size(inbuf);
-            if (need == 0) break;
-
-            std::vector<uint8_t> frame_bytes;
-            frame_bytes.reserve(need);
-            frame_bytes.insert(frame_bytes.end(), inbuf.begin(), inbuf.begin() + need);
-
-            inbuf.erase(inbuf.begin(), inbuf.begin() + need);
-
-            auto maybe = parse_frame(std::move(frame_bytes));
-            if (!maybe) {
-                WsFrame out{};
-                out.fin = true;
-                out.opcode = WS_CLOSE;
-                out.mask = false;
-                out.payload_length = 2;
-                out.payload_data = std::string("\x03\xEA", 2); // 1002
-                auto bytes = write_frame(out);
-                co_await asio::async_write(socket, asio::buffer(bytes),
-                                           asio::bind_cancellation_slot(token, asio::use_awaitable));
-                if (handlers->on_close) handlers->on_close(1002, "Protocol error");
-                co_return;
-            }
-
-            WsFrame f = std::move(*maybe);
-            if (!f.fin || f.opcode == 0x0 /*CONT*/) {
-                WsFrame out{};
-                out.fin = true;
-                out.opcode = WS_CLOSE;
-                out.mask = false;
-                out.payload_length = 2;
-                out.payload_data = std::string("\x03\xEB", 2); // 1003
-                auto bytes = write_frame(out);
-                co_await asio::async_write(socket, asio::buffer(bytes),
-                                           asio::bind_cancellation_slot(token, asio::use_awaitable));
-                if (handlers->on_close) handlers->on_close(1003, "Unsupported (no fragmentation)");
-                co_return;
-            }
-
-            switch (f.opcode) {
-                case WS_TEXT: {
-                    if (handlers->on_message) handlers->on_message(f.payload_data);
-
-                    WsFrame out{};
-                    out.fin = true;
-                    out.opcode = WS_TEXT;
-                    out.mask = false; // server MUST NOT mask
-                    out.payload_data = f.payload_data; // copy text payload
-                    out.payload_length = out.payload_data.size(); // set length
-
-                    auto bytes = write_frame(out);
-                    co_await asio::async_write(socket, asio::buffer(bytes),
-                                               asio::bind_cancellation_slot(token, asio::use_awaitable));
-                    break;
-                }
-                case WS_PING: {
-                    WsFrame pong{};
-                    pong.fin = true;
-                    pong.opcode = WS_PONG;
-                    pong.mask = false;
-                    pong.payload_length = f.payload_data.size();
-                    pong.payload_data = f.payload_data;
-                    auto bytes = write_frame(pong);
-                    co_await asio::async_write(socket, asio::buffer(bytes),
-                                               asio::bind_cancellation_slot(token, asio::use_awaitable));
-                    break;
-                }
-                case WS_CLOSE: {
-                    uint16_t code = 1000;
-                    std::string_view reason;
-                    if (f.payload_data.size() >= 2) {
-                        code = (static_cast<uint8_t>(f.payload_data[0]) << 8)
-                               | (static_cast<uint8_t>(f.payload_data[1]));
-                        reason = std::string_view(f.payload_data).substr(2);
-                    }
-                    // echo close
-                    auto bytes = write_frame(f); // echo client close as-is
-                    co_await asio::async_write(socket, asio::buffer(bytes),
-                                               asio::bind_cancellation_slot(token, asio::use_awaitable));
-                    if (handlers->on_close) handlers->on_close(code, reason);
-                    co_return;
-                }
-                default: {
-                    // binary or unsupported → close with 1003 (since on_message expects text)
-                    WsFrame out{};
-                    out.fin = true;
-                    out.opcode = WS_CLOSE;
-                    out.mask = false;
-                    out.payload_length = 2;
-                    out.payload_data = std::string("\x03\xEB", 2); // 1003
-                    auto bytes = write_frame(out);
-                    co_await asio::async_write(socket, asio::buffer(bytes),
-                                               asio::bind_cancellation_slot(token, asio::use_awaitable));
-                    if (handlers->on_close) handlers->on_close(1003, "Unsupported opcode");
-                    co_return;
-                }
-            }
-        }
-    }
+    co_return;
 }
+
 
 
 asio::awaitable<Response> Server::handle_request(const Request &req) {

@@ -2,7 +2,7 @@
 #include <iostream>
 
 int main(int argc, char *argv[]) {
-    unsigned short port = 12345;
+    unsigned short port = 8080;
     size_t num_threads = 8;
     if (argc >= 2) {
         try {

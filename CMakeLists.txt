@@ -23,7 +23,7 @@ add_library(my_http_lib
         src/server.cpp
         src/http/request.cpp
         src/http/response.cpp
-        include/WsFrame.h
+        include/websocket/WsFrame.h
 )
 
 target_include_directories(my_http_lib
