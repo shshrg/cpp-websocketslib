@@ -113,7 +113,8 @@ public:
     };
 
     WsRouter WebSocket(std::string path) { return WsRouter{*this, std::move(path)}; }
-    const WsHandlers* find_ws(const std::string& path) const {
+
+    const WsHandlers *find_ws(const std::string &path) const {
         auto it = ws_routes_.find(path);
         return it == ws_routes_.end() ? nullptr : &it->second;
     }
@@ -166,7 +167,8 @@ private:
     void commit_ws_route(std::string path, WsHandlers handlers) { ws_routes_[std::move(path)] = std::move(handlers); }
 
     template<typename Socket>
-    asio::awaitable<void> process_session_ws(Socket &socket, const std::string& path, const std::string& sec_ws_key, asio::cancellation_slot token);
+    asio::awaitable<void> process_session_ws(Socket &socket, const std::string &sec_ws_key,
+                                             const WsHandlers *handlers, asio::cancellation_slot token);
 
     asio::io_context &io_context_;
     asio::ip::tcp::acceptor acceptor_;

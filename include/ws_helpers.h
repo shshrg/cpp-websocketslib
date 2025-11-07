@@ -1,13 +1,11 @@
 #ifndef WS_HELPERS
 #define WS_HELPERS
-#pragma once
 
 #include <asio.hpp>
+#include <iostream>
 #include <vector>
-#include <array>
 #include <string>
 #include "websocket/WsFrame.h"
-#include <optional>
 
 using WsOpenHandler = std::function<void()>;
 using WsMessageHandler = std::function<void(std::string_view msg)>;
@@ -182,33 +180,66 @@ asio::awaitable<void> do_read_loop(Socket &socket,
                                    const WsHandlers *handlers,
                                    asio::cancellation_slot token)
 {
+    constexpr size_t readChunk = 8 * 1024;
+    size_t read_pos = 0;
+
     std::vector<uint8_t> inbuf;
-    inbuf.reserve(4096);
-    std::array<uint8_t, 4096> tmp{};
+    inbuf.reserve(readChunk);
+
+    auto compact_if = [&] {
+        if (read_pos && (read_pos > inbuf.size() / 2 || read_pos > 64 * 1024)) {
+            const size_t remaining = inbuf.size() - read_pos;
+            if (remaining)
+                std::memmove(inbuf.data(), inbuf.data() + read_pos, remaining);
+            inbuf.resize(remaining);
+            read_pos = 0;
+        }
+    };
+    auto ensure_free = [&](size_t min_free) {
+        if (inbuf.capacity() - inbuf.size() < min_free) {
+            compact_if();
+        }
+        if (inbuf.capacity() - inbuf.size() < min_free) {
+            size_t want = inbuf.size() + std::max(min_free, inbuf.size());
+            inbuf.reserve(want);
+        }
+    };
 
     while (true) {
-        std::size_t n = co_await socket.async_read_some(asio::buffer(tmp),
-                                                        asio::bind_cancellation_slot(token, asio::use_awaitable));
-        inbuf.insert(inbuf.end(), tmp.begin(), tmp.begin() + n);
+
+        ensure_free(readChunk);
+
+        const size_t old = inbuf.size();
+        inbuf.resize(old + readChunk);
+
+        std::size_t n = co_await socket.async_read_some(
+            asio::buffer(inbuf.data() + old, readChunk),
+            asio::bind_cancellation_slot(token, asio::use_awaitable));
+
+        inbuf.resize(old + n);
 
         while (true) {
-            size_t need = ws_next_frame_size(inbuf);
+            const size_t need = ws_next_frame_size(inbuf, read_pos);
             if (need == 0) break;
 
-            std::vector<uint8_t> frame_bytes;
-            frame_bytes.reserve(need);
-            frame_bytes.insert(frame_bytes.end(), inbuf.begin(), inbuf.begin() + static_cast<off_t>(need));
-            inbuf.erase(inbuf.begin(), inbuf.begin() + static_cast<off_t>(need));
+            const uint8_t* frame_ptr = inbuf.data() + read_pos;
 
-            auto maybe = parse_frame(std::move(frame_bytes));
-            if (!maybe) {
+            WsFrame frame;
+
+            if (!parse_frame(frame_ptr, need, frame)) {
+                compact_if();
                 co_await send_protocol_error_and_close(socket, token);
                 if (handlers && handlers->on_close) handlers->on_close(1002, "Protocol error");
                 co_return;
             }
-            co_await handle_parsed_frame(socket, std::move(*maybe), handlers, token);
+            read_pos += need;
+
+            co_await handle_parsed_frame(socket, std::move(frame), handlers, token);
         }
+
+        compact_if();
     }
 }
+
 
 #endif //WS_HELPERS

@@ -75,7 +75,7 @@ asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation
                                        asio::bind_cancellation_slot(token, asio::use_awaitable));
             co_return;
         }
-        co_await process_session_ws(socket, req.path, key, token);
+        co_await process_session_ws(socket, key, handlers, token);
         co_return;
     }
     Response resp = co_await handle_request(req);
@@ -84,18 +84,14 @@ asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation
 
 template<typename Socket>
 asio::awaitable<void> Server::process_session_ws(Socket &socket,
-                                         const std::string &path,
                                          const std::string &sec_ws_key,
+                                         const WsHandlers *handlers,
                                          asio::cancellation_slot token)
 {
     std::string accept = ws_accept_key(sec_ws_key);
     Response resp = build_101_response(accept);
     co_await asio::async_write(socket, asio::buffer(resp.to_string()),
                                asio::bind_cancellation_slot(token, asio::use_awaitable));
-
-    const WsHandlers *handlers = find_ws(path);
-    if (!handlers) co_return;
-
     if (handlers->on_open) handlers->on_open();
 
     co_await do_read_loop(socket, handlers, token);
@@ -142,7 +138,6 @@ asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id
     } else {
         co_await process_session(socket, token);
     }
-    remove_client(client_id);
     co_return;
 }
 
