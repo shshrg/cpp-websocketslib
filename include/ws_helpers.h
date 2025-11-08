@@ -249,14 +249,6 @@ asio::awaitable<void> handle_text_frame(Socket &socket,
     out.payload_length = out.payload_data.size();
 
     auto bytes = write_frame(out);
-
-    if (out.opcode == WS_TEXT) {
-        size_t show = std::min<size_t>(bytes.size(), 6);
-        fprintf(stdout, "TX TEXT hdr: ");
-        for (size_t i=0;i<show;i++) fprintf(stdout, "%02X ", bytes[i]);
-        fprintf(stdout, "\n");
-    }
-
     co_await do_write(socket, bytes, token);
     co_return;
 }
