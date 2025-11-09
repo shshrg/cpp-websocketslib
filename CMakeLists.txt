@@ -31,7 +31,7 @@ target_include_directories(my_http_lib
         ${CMAKE_SOURCE_DIR}/include
         ${ASIO_INCLUDE_DIR}
 )
-
+# TODO: no openssl
 target_link_libraries(my_http_lib
         PRIVATE
         OpenSSL::SSL

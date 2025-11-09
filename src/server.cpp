@@ -61,6 +61,7 @@ asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation
     std::cout << req.to_string() << "\n";
 
     if (req.is_ws_upgrade()) {
+        std::cout << "It is an upgrade!" << std::endl;
         const auto *handlers = find_ws(req.path);
         if (!handlers) {
             Response resp = Response::not_found("No such route for ws!");
@@ -134,6 +135,7 @@ asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id
         asio::ssl::stream<tcp::socket> ssl_stream(std::move(socket), ssl_context_);
         co_await ssl_stream.async_handshake(asio::ssl::stream_base::server,
                                             asio::bind_cancellation_slot(token, asio::use_awaitable));
+        std::cout << "Client " << client_id << " use SSL\n";
         co_await process_session(ssl_stream, token);
     } else {
         co_await process_session(socket, token);

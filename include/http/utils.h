@@ -2,6 +2,7 @@
 #define WEBSOCKETLIB_UTILS_H
 
 #include "request.h"
+// TODO: don't use openssl
 #include <openssl/sha.h>
 
 inline std::string ws_accept_key(std::string_view client_key) {

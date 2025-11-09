@@ -24,9 +24,8 @@ struct FrameBody {
     bool assembling = false;
     uint8_t opcode = 0;
     std::string msg;
-    size_t limit = 16 * 1024 * 1024;
 
-    void reset() {
+    void reset() noexcept {
         assembling = false;
         opcode = 0;
         msg.clear();
@@ -36,44 +35,36 @@ struct FrameBody {
         assembling = true;
         opcode = op;
         msg.clear();
-        if (reserve_hint) msg.reserve(std::min(limit, reserve_hint));
+        if (reserve_hint)
+            msg.reserve(reserve_hint);
     }
 
-    [[nodiscard]] bool would_exceed(size_t add) const {
-        return msg.size() + add > limit;
-    }
-
-    [[nodiscard]] bool append(std::span<const uint8_t> bytes) {
-        if (would_exceed(bytes.size())) return false;
-        msg.append(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+    // Append data from a std::string or std::string_view only.
+    bool append(const std::string &bytes) {
+        msg.append(bytes.data(), bytes.size());
         return true;
     }
 
-    [[nodiscard]] bool append(const uint8_t *data, size_t n) {
-        if (would_exceed(n)) return false;
-        msg.append(reinterpret_cast<const char *>(data), n);
+    bool append(std::string_view bytes) {
+        msg.append(bytes.data(), bytes.size());
         return true;
     }
 
-    [[nodiscard]] bool append(std::string_view sv) {
-        if (would_exceed(sv.size())) return false;
-        msg.append(sv.data(), sv.size());
-        return true;
-    }
-
-    [[nodiscard]] std::string_view as_string_view() const {
+    [[nodiscard]] std::string_view as_string_view() const noexcept {
         return std::string_view{msg.data(), msg.size()};
     }
 
-    [[nodiscard]] std::span<const uint8_t> as_span() const {
+    [[nodiscard]] std::span<const uint8_t> as_span() const noexcept {
         return {
-            reinterpret_cast<const uint8_t *>(msg.data()), msg.size()
+            reinterpret_cast<const uint8_t *>(msg.data()),
+            msg.size()
         };
     }
 
-    [[nodiscard]] size_t size() const { return msg.size(); }
-    [[nodiscard]] bool empty() const { return msg.empty(); }
+    [[nodiscard]] size_t size() const noexcept { return msg.size(); }
+    [[nodiscard]] bool empty() const noexcept { return msg.empty(); }
 };
+
 
 
 enum : uint8_t {
@@ -299,39 +290,36 @@ asio::awaitable<void> handle_parsed_frame(Socket &socket,
             co_return;
         }
         fb.start(f.opcode, f.payload_data.size());
-        if (!fb.append(sv)) {
-            co_await send_close_with_reason(socket, 1009, "Message too big", token);
-            if (handlers && handlers->on_close) handlers->on_close(1009, "Message too big");
-            co_return;
-        }
+        fb.append(sv);
+            // co_await send_close_with_reason(socket, 1009, "Message too big", token);
+            // if (handlers && handlers->on_close) handlers->on_close(1009, "Message too big");
+            // co_return;
+        // }
 
         if (f.fin) {
             if (fb.opcode == WS_TEXT) {
                 co_await handle_text_bytes(socket, fb.as_string_view(), handlers, token);
-                fb.reset();
             }
+            fb.reset();
             co_return;
         }
+        co_return;
     }
 
     if (f.opcode == WS_CONT) {
-        if (!fb.append(sv)) {
-            co_await send_close_with_reason(socket, 1009, "Message too big", token);
-            if (handlers && handlers->on_close) handlers->on_close(1009, "Message too big");
-            co_return;
-        }
+        fb.append(sv);
         if (f.fin) {
             if (fb.opcode == WS_TEXT) {
                 co_await handle_text_bytes(socket, fb.as_string_view(), handlers, token);
-                fb.reset();
             }
+            fb.reset();
             co_return;
         }
-
-        co_await send_unsupported_and_close(socket, token);
-        if (handlers && handlers->on_close) handlers->on_close(1003, "Unsupported opcode");
         co_return;
     }
+    co_await send_unsupported_and_close(socket, token);
+    if (handlers && handlers->on_close) handlers->on_close(1003, "Unsupported opcode");
+    co_return;
 }
 
 
@@ -383,6 +371,7 @@ asio::awaitable<void> do_read_loop(Socket &socket,
             if (need == 0) break;
 
             const uint8_t *frame_ptr = inbuf.data() + read_pos;
+            // TODO: read 2 bytes, if extended  and then async_read in while loop
 
             WsFrame frame;
 

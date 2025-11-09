@@ -101,12 +101,13 @@ const sock = net.createConnection({host: HOST, port: PORT}, () => {
 });
 
 let upgraded = false;
-let buf = Buffer.alloc(0);
+let rx = Buffer.alloc(0);
+let weSentClose = false;
 
 sock.on('data', (chunk) => {
     if (!upgraded) {
-        buf = Buffer.concat([buf, chunk]);
-        const s = buf.toString('utf8');
+        rx = Buffer.concat([rx, chunk]);
+        const s = rx.toString('utf8');
         if (s.includes('\r\n\r\n')) {
             if (!/^HTTP\/1\.1 101 /.test(s)) {
                 console.error('Handshake failed:\n', s);
@@ -116,64 +117,79 @@ sock.on('data', (chunk) => {
             upgraded = true;
             console.log('✓ Handshake 101 Switching Protocols');
 
-            // send fragmented text WITHOUT ping
+            // send fragmented text
             sendFragmentedText(sock, 3400, 500, 1500);
 
-            // optionally close after a bit
-            setTimeout(() => gracefulClose(sock), 300);
+            // close a bit later
+            setTimeout(() => { gracefulClose(sock); weSentClose = true; }, 300);
+
+            rx = Buffer.alloc(0);
         }
         return;
     }
 
-    console.log(`← received ${chunk.length} bytes (raw)`);
+    rx = Buffer.concat([rx, chunk]);
+    parseFrames();
 });
 
-// Replace your sock.on('data', ...) with this parser:
-let rx = Buffer.alloc(0);
-
-function parseServerFrames() {
-    while (true) {
-        if (rx.length < 2) return;                    // need header
+function parseFrames() {
+    while (rx.length >= 2) {
         const b0 = rx[0];
+        const b1 = rx[1];
         const fin = !!(b0 & 0x80);
         const opcode = b0 & 0x0f;
-
-        const b1 = rx[1];
-        const masked = !!(b1 & 0x80);                 // should be false from server
-        if (masked) { console.error('Server sent MASKED frame (unexpected)'); }
-
+        const masked = !!(b1 & 0x80);   // server frames must be unmasked (false)
         let len = b1 & 0x7f;
-        let off = 2;
+        let offset = 2;
 
         if (len === 126) {
-            if (rx.length < off + 2) return;
-            len = rx.readUInt16BE(off);
-            off += 2;
+            if (rx.length < offset + 2) return;
+            len = rx.readUInt16BE(offset); offset += 2;
         } else if (len === 127) {
-            if (rx.length < off + 8) return;
-            const hi = rx.readUInt32BE(off);
-            const lo = rx.readUInt32BE(off + 4);
+            if (rx.length < offset + 8) return;
+            const hi = rx.readUInt32BE(offset);
+            const lo = rx.readUInt32BE(offset + 4);
+            offset += 8;
             len = hi * 2 ** 32 + lo;
-            off += 8;
         }
 
-        if (rx.length < off + len) return;            // wait for full payload
+        if (masked) {
+            console.error('Protocol error: server frame is masked');
+            sock.destroy();
+            return;
+        }
 
-        const payload = rx.subarray(off, off + len);
+        if (rx.length < offset + len) return; // wait for full payload
 
-        // Pretty log
-        const names = { 0x0:'CONT', 0x1:'TEXT', 0x2:'BINARY', 0x8:'CLOSE', 0x9:'PING', 0xA:'PONG' };
-        console.log(`← frame op=${names[opcode] ?? opcode} fin=${fin} len=${len}`);
+        const payload = rx.subarray(offset, offset + len);
+        rx = rx.subarray(offset + len); // consume frame
 
-        // Consume
-        rx = rx.subarray(off + len);
+        if (opcode === 0x8) { // CLOSE
+            // If payload has at least 2 bytes, it’s a status code
+            let code = null, reason = '';
+            if (payload.length >= 2) {
+                code = payload.readUInt16BE(0);
+                reason = payload.subarray(2).toString('utf8');
+            }
+            console.log(`← CLOSE from server${code ? ` (${code}${reason ? `, "${reason}"` : ''})` : ''}`);
+
+            // We initiated the close: finish by closing TCP
+            // (If we hadn’t sent a close, we would send one back here first.)
+            sock.end(); // graceful FIN
+            return;
+        } else if (opcode === 0x1 || opcode === 0x2 || opcode === 0x0) {
+            // TEXT / BINARY / CONT — you can ignore or parse further
+            console.log(`← frame opcode=${opcode} fin=${fin} len=${payload.length}`);
+        } else if (opcode === 0x9) {
+            // PING → respond with PONG (same payload)
+            // (not needed in your "no ping" script)
+        } else if (opcode === 0xA) {
+            // PONG — ignore
+        } else {
+            console.log(`← unknown opcode ${opcode}`);
+        }
     }
 }
-
-sock.on('data', (chunk) => {
-    rx = Buffer.concat([rx, chunk]);
-    parseServerFrames();
-});
 
 
 sock.on('close', () => console.log('socket closed'));
