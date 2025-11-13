@@ -7,7 +7,6 @@
 #include <string>
 #include "websocket/WsFrame.h"
 #include <algorithm>
-#include <span>
 
 using WsOpenHandler = std::function<void()>;
 using WsMessageHandler = std::function<void(std::string_view msg)>;
@@ -18,7 +17,6 @@ struct WsHandlers {
     WsMessageHandler on_message{};
     WsCloseHandler on_close{};
 };
-
 
 struct FrameBody {
     bool assembling = false;
@@ -39,27 +37,23 @@ struct FrameBody {
             msg.reserve(reserve_hint);
     }
 
-    // Append data from a std::string or std::string_view only.
     bool append(const std::string &bytes) {
         msg.append(bytes.data(), bytes.size());
         return true;
     }
 
-    bool append(std::string_view bytes) {
-        msg.append(bytes.data(), bytes.size());
+    bool append_masked(const uint8_t *data, size_t len, uint32_t mask_key) {
+        const size_t old_size = msg.size();
+        msg.resize(old_size + len);
+        for (size_t i = 0; i < len; ++i) {
+            auto m = static_cast<uint8_t>(
+                (mask_key >> ((3 - (i & 3)) * 8)) & 0xFF
+            );
+            msg[old_size + i] = static_cast<char>(data[i] ^ m);
+        }
         return true;
     }
 
-    [[nodiscard]] std::string_view as_string_view() const noexcept {
-        return std::string_view{msg.data(), msg.size()};
-    }
-
-    [[nodiscard]] std::span<const uint8_t> as_span() const noexcept {
-        return {
-            reinterpret_cast<const uint8_t *>(msg.data()),
-            msg.size()
-        };
-    }
 
     [[nodiscard]] size_t size() const noexcept { return msg.size(); }
     [[nodiscard]] bool empty() const noexcept { return msg.empty(); }
@@ -87,7 +81,7 @@ asio::awaitable<void> do_write(Socket &socket,
 
 template<typename Socket>
 asio::awaitable<void> send_pong(Socket &socket,
-                                std::string_view payload,
+                                const std::string & payload,
                                 asio::cancellation_slot token) {
     WsFrame pong{};
     pong.fin = true;
@@ -102,7 +96,7 @@ asio::awaitable<void> send_pong(Socket &socket,
 
 template<typename Socket>
 asio::awaitable<void> send_text(Socket &socket,
-                                std::string_view payload,
+                                const std::string & payload,
                                 asio::cancellation_slot token) {
     WsFrame out{};
     out.fin = true;
@@ -169,29 +163,8 @@ asio::awaitable<void> send_unsupported_and_close(Socket &socket,
 
 
 template<typename Socket>
-asio::awaitable<void> send_close_code(Socket &socket,
-                                      uint16_t code,
-                                      const std::string_view &reason,
-                                      asio::cancellation_slot token) {
-    WsFrame out{};
-    out.fin = true;
-    out.opcode = WS_CLOSE;
-    out.mask = false;
-    out.payload_length = 2 + reason.size();
-    out.payload_data.resize(2 + reason.size());
-    out.payload_data[0] = static_cast<char>((code >> 8) & 0xFF);
-    out.payload_data[1] = static_cast<char>(code & 0xFF);
-    if (!reason.empty()) {
-        std::copy(reason.begin(), reason.end(), out.payload_data.begin() + 2);
-    }
-    auto bytes = write_frame(out);
-    co_await do_write(socket, bytes, token);
-    co_return;
-}
-
-template<typename Socket>
 asio::awaitable<void> handle_text_bytes(Socket &socket,
-                                        std::string_view payload,
+                                        const std::string & payload,
                                         const WsHandlers *handlers,
                                         asio::cancellation_slot token) {
     if (handlers && handlers->on_message) handlers->on_message(std::string(payload));
@@ -201,23 +174,25 @@ asio::awaitable<void> handle_text_bytes(Socket &socket,
 
 template<typename Socket>
 asio::awaitable<void> handle_ping_frame(Socket &socket,
-                                        const WsFrame &f,
+                                        const std::string & payload,
                                         asio::cancellation_slot token) {
-    co_await send_pong(socket, std::string_view(f.payload_data.data(), f.payload_data.size()), token);
+    co_await send_pong(socket, payload, token);
     co_return;
 }
 
 template<typename Socket>
 asio::awaitable<void> handle_close_frame(Socket &socket,
-                                         const WsFrame &f,
+                                         const std::string & payload,
                                          const WsHandlers *handlers,
                                          asio::cancellation_slot token) {
     uint16_t code = 1000;
     std::string_view reason;
-    if (f.payload_data.size() >= 2) {
-        code = (static_cast<uint8_t>(f.payload_data[0]) << 8)
-             |  static_cast<uint8_t>(f.payload_data[1]);
-        reason = std::string_view(f.payload_data).substr(2);
+    if (payload.size() >= 2) {
+        code = (static_cast<uint8_t>(payload[0]) << 8)
+             |  static_cast<uint8_t>(payload[1]);
+        if (payload.size() > 2) {
+            reason = std::string_view(payload.data() + 2, payload.size() - 2);
+        }
     }
     co_await send_close_with_reason(socket, code, reason, token);
     if (handlers && handlers->on_close) handlers->on_close(code, reason);
@@ -226,97 +201,79 @@ asio::awaitable<void> handle_close_frame(Socket &socket,
 
 
 template<typename Socket>
-asio::awaitable<void> handle_text_frame(Socket &socket,
-                                        const WsFrame &f,
-                                        const WsHandlers *handlers,
-                                        asio::cancellation_slot token) {
-    if (handlers && handlers->on_message) handlers->on_message(f.payload_data);
-
-    WsFrame out{};
-    out.fin = true;
-    out.opcode = WS_TEXT;
-    out.mask = false;
-    out.payload_data = f.payload_data;
-    out.payload_length = out.payload_data.size();
-
-    auto bytes = write_frame(out);
-    co_await do_write(socket, bytes, token);
-    co_return;
-}
-
-
-
-
-
-template<typename Socket>
 asio::awaitable<void> handle_parsed_frame(Socket &socket,
-                                          WsFrame &&f,
+                                          const WsFrame &f,
                                           const WsHandlers *handlers,
                                           FrameBody &fb,
-                                          asio::cancellation_slot token) {
-    if (f.opcode == WS_PING) {
+                                          asio::cancellation_slot token)
+{
+    const uint8_t opcode = f.opcode;
+
+    if (opcode == WS_PING) {
         if (!f.fin) {
             co_await send_close_with_reason(socket, 1002, "Fragmented control", token);
             if (handlers && handlers->on_close) handlers->on_close(1002, "Fragmented control");
             co_return;
         }
-        co_await handle_ping_frame(socket, f, token);
-        co_return;
-    }
-    if (f.opcode == WS_PONG) {
-        if (!f.fin) {
-            co_await send_close_with_reason(socket, 1002, "Fragmented control", token);
-            if (handlers && handlers->on_close) handlers->on_close(1002, "Fragmented control");
-            co_return;
-        }
-        co_return;
-    }
-    if (f.opcode == WS_CLOSE) {
-        if (!f.fin) {
-            co_await send_close_with_reason(socket, 1002, "Fragmented control", token);
-            if (handlers && handlers->on_close) handlers->on_close(1002, "Fragmented control");
-            co_return;
-        }
-        co_await handle_close_frame(socket, f, handlers, token);
+        co_await handle_ping_frame(socket, f.payload_data, token);
         co_return;
     }
 
-    const auto sv = std::string_view(f.payload_data.data(), f.payload_data.size());
+    if (opcode == WS_PONG) {
+        if (!f.fin) {
+            co_await send_close_with_reason(socket, 1002, "Fragmented control", token);
+            if (handlers && handlers->on_close) handlers->on_close(1002, "Fragmented control");
+            co_return;
+        }
+        co_return;
+    }
 
-    if (f.opcode == WS_TEXT || f.opcode == WS_BINARY) {
+    if (opcode == WS_CLOSE) {
+        if (!f.fin) {
+            co_await send_close_with_reason(socket, 1002, "Fragmented control", token);
+            if (handlers && handlers->on_close) handlers->on_close(1002, "Fragmented control");
+            co_return;
+        }
+        co_await handle_close_frame(socket, f.payload_data, handlers, token);
+        co_return;
+    }
+
+    if (opcode == WS_TEXT || opcode == WS_BINARY) {
         if (fb.assembling) {
             co_await send_close_with_reason(socket, 1002, "New data while assembling", token);
             if (handlers && handlers->on_close) handlers->on_close(1002, "New data while assembling");
             co_return;
         }
-        fb.start(f.opcode, f.payload_data.size());
-        fb.append(sv);
-            // co_await send_close_with_reason(socket, 1009, "Message too big", token);
-            // if (handlers && handlers->on_close) handlers->on_close(1009, "Message too big");
-            // co_return;
-        // }
+        fb.start(opcode, f.payload_length);
+        fb.append(f.payload_data);
 
         if (f.fin) {
             if (fb.opcode == WS_TEXT) {
-                co_await handle_text_bytes(socket, fb.as_string_view(), handlers, token);
+                co_await handle_text_bytes(socket, fb.msg, handlers, token);
             }
             fb.reset();
-            co_return;
         }
         co_return;
     }
 
-    if (f.opcode == WS_CONT) {
-        fb.append(sv);
+    if (opcode == WS_CONT) {
+        if (!fb.assembling) {
+            co_await send_close_with_reason(socket, 1002, "Continuation without initial frame", token);
+            if (handlers && handlers->on_close) handlers->on_close(1002, "Continuation without initial frame");
+            co_return;
+        }
+
+        fb.append(f.payload_data);
+
         if (f.fin) {
             if (fb.opcode == WS_TEXT) {
-                co_await handle_text_bytes(socket, fb.as_string_view(), handlers, token);
+                co_await handle_text_bytes(socket, fb.msg, handlers, token);
             }
             fb.reset();
-            co_return;
         }
         co_return;
     }
+
     co_await send_unsupported_and_close(socket, token);
     if (handlers && handlers->on_close) handlers->on_close(1003, "Unsupported opcode");
     co_return;
@@ -326,7 +283,8 @@ asio::awaitable<void> handle_parsed_frame(Socket &socket,
 template<typename Socket>
 asio::awaitable<void> do_read_loop(Socket &socket,
                                    const WsHandlers *handlers,
-                                   asio::cancellation_slot token) {
+                                   asio::cancellation_slot token)
+{
     constexpr size_t readChunk = 8 * 1024;
     size_t read_pos = 0;
 
@@ -344,6 +302,7 @@ asio::awaitable<void> do_read_loop(Socket &socket,
             read_pos = 0;
         }
     };
+
     auto ensure_free = [&](size_t min_free) {
         if (inbuf.capacity() - inbuf.size() < min_free) {
             compact_if();
@@ -355,41 +314,97 @@ asio::awaitable<void> do_read_loop(Socket &socket,
     };
 
     while (true) {
-        ensure_free(readChunk);
+        WsFrame f{};
+        size_t header_bytes = 0;
 
-        const size_t old = inbuf.size();
-        inbuf.resize(old + readChunk);
+        for (;;) {
+            const size_t available = inbuf.size() - read_pos;
 
-        std::size_t n = co_await socket.async_read_some(
-            asio::buffer(inbuf.data() + old, readChunk),
-            asio::bind_cancellation_slot(token, asio::use_awaitable));
+            if (available >= 2) {
+                auto res = ws_try_parse_header(inbuf, read_pos, f, header_bytes);
+                if (res == HeaderParseResult::Ok) {
+                    break;
+                }
+            }
 
-        inbuf.resize(old + n);
+            ensure_free(readChunk);
 
-        while (true) {
-            const size_t need = ws_next_frame_size(inbuf, read_pos);
-            if (need == 0) break;
+            const size_t old = inbuf.size();
+            inbuf.resize(old + readChunk);
 
-            const uint8_t *frame_ptr = inbuf.data() + read_pos;
-            // TODO: read 2 bytes, if extended  and then async_read in while loop
+            std::size_t n = co_await socket.async_read_some(
+                asio::buffer(inbuf.data() + old, readChunk),
+                asio::bind_cancellation_slot(token, asio::use_awaitable)
+            );
 
-            WsFrame frame;
+            inbuf.resize(old + n);
 
-            if (!parse_frame(frame_ptr, need, frame)) {
-                compact_if();
-                co_await send_protocol_error_and_close(socket, token);
-                if (handlers && handlers->on_close) handlers->on_close(1002, "Protocol error");
+            if (n == 0) {
                 co_return;
             }
-            read_pos += need;
-
-
-            co_await handle_parsed_frame(socket, std::move(frame), handlers, fb, token);
         }
 
+        const size_t frame_total =
+            header_bytes + f.payload_length;
+
+        for (;;) {
+            const size_t available = inbuf.size() - read_pos;
+            if (available >= frame_total) {
+                break;
+            }
+
+            ensure_free(readChunk);
+
+            const size_t old = inbuf.size();
+            inbuf.resize(old + readChunk);
+
+            std::size_t n = co_await socket.async_read_some(
+                asio::buffer(inbuf.data() + old, readChunk),
+                asio::bind_cancellation_slot(token, asio::use_awaitable)
+            );
+
+            inbuf.resize(old + n);
+
+            if (n == 0) {
+                co_return;
+            }
+        }
+
+        const uint8_t* frame_ptr   = inbuf.data() + read_pos;
+        const uint8_t* payload_ptr = frame_ptr + header_bytes;
+        const size_t   payload_len =
+            f.payload_length;
+
+        if (payload_len > 0) {
+            f.payload_data.resize(payload_len);
+            if (f.mask) {
+                uint32_t key = f.masking_key;
+                for (size_t i = 0; i < payload_len; ++i) {
+                    auto m = static_cast<uint8_t>(
+                        (key >> ((3 - (i & 3)) * 8)) & 0xFF
+                    );
+                    f.payload_data[i] = static_cast<char>(payload_ptr[i] ^ m);
+                }
+            } else {
+                std::memcpy(f.payload_data.data(),
+                            payload_ptr,
+                            payload_len);
+            }
+        } else {
+            f.payload_data.clear();
+        }
+
+        co_await handle_parsed_frame(
+            socket,
+            f,
+            handlers,
+            fb,
+            token
+        );
+
+        read_pos += frame_total;
         compact_if();
     }
 }
-
 
 #endif //WS_HELPERS
