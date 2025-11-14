@@ -307,7 +307,7 @@ asio::awaitable<Response> Server::serve_static(const Request &req) {
     if (!fs::exists(canon_srv_path, ec) || ec)
         co_return Response::not_found("File not found in root directory");
 
-    res.set_header("content-type", ext_type(canon_srv_path.extension()));
+    res.set_header("content-type", ext_type(canon_srv_path.extension().string()));
 
     res.sendfile_path = canon_srv_path;
     res.sendfile_size = fs::file_size(canon_srv_path);

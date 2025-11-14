@@ -10,7 +10,7 @@ enum class Method : uint8_t {
     GET,
     POST,
     PUT,
-    DELETE,
+    DELETE_,
     PATCH,
     HEAD,
     OPTIONS,

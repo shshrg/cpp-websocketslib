@@ -71,7 +71,7 @@ public:
     void Put(std::string path, F h) { add_route(Method::PUT, std::move(path), std::move(h)); }
 
     template<typename F>
-    void Delete(std::string path, F h) { add_route(Method::DELETE, std::move(path), std::move(h)); }
+    void Delete(std::string path, F h) { add_route(Method::DELETE_, std::move(path), std::move(h)); }
 
     // Mount Static
     void MountStatic(std::string url_prefix, fs::path root);

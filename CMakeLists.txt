@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(websocketlib LANGUAGES CXX)
 
+add_compile_definitions(_WIN32_WINNT=0x0A00)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
@@ -33,19 +35,27 @@ target_include_directories(my_http_lib
 )
 # TODO: no openssl
 target_link_libraries(my_http_lib
-        PRIVATE
+        PUBLIC
         OpenSSL::SSL
         OpenSSL::Crypto
 )
 
-if(UNIX)
+if (WIN32)
+    target_link_libraries(my_http_lib
+            PUBLIC
+            ws2_32
+            mswsock
+    )
+endif ()
+
+if (UNIX)
     target_link_libraries(my_http_lib PRIVATE pthread)
     find_library(LIBURING_LIBRARY NAMES uring)
     if (LIBURING_LIBRARY)
         target_link_libraries(my_http_lib PRIVATE "${LIBURING_LIBRARY}")
         target_compile_definitions(my_http_lib PUBLIC ASIO_HAS_IO_URING HAVE_ASIO_FILE_IO)
     endif ()
-endif()
+endif ()
 
 # --- Executable server_app
 add_executable(server_app src/main.cpp)
