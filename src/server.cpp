@@ -131,15 +131,19 @@ asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id
     } guard{this, client_id};
 
     if (use_ssl_) {
-        std::cout << "Client " << client_id << " use TLS\n";
-        asio::ssl::stream<tcp::socket> ssl_stream(std::move(socket), ssl_context_);
-        co_await ssl_stream.async_handshake(asio::ssl::stream_base::server,
+	#ifdef USE_SSL
+		asio::ssl::stream<tcp::socket> ssl_stream(std::move(socket), ssl_context_);
+		co_await ssl_stream.async_handshake(asio::ssl::stream_base::server,
                                             asio::bind_cancellation_slot(token, asio::use_awaitable));
-        std::cout << "Client " << client_id << " use SSL\n";
-        co_await process_session(ssl_stream, token);
-    } else {
-        co_await process_session(socket, token);
-    }
+		std::cout << "Client " << client_id << " use SSL\n";
+		co_await process_session(ssl_stream, token);
+	#else
+		std::cerr << "SSL requested but OpenSSL disabled — using plain TCP.\n";
+		co_await process_session(socket, token);
+	#endif
+	} else {
+		co_await process_session(socket, token);
+	}
     co_return;
 }
 
@@ -241,6 +245,35 @@ void Server::remove_client(size_t client_id) {
     std::lock_guard lock(mutex_);
     client_cancel_.erase(client_id);
 }
+
+#ifdef USE_SSL
+bool Server::setup_ssl() {
+    if (use_ssl_) {
+        ssl_context_.set_options(
+            asio::ssl::context::default_workarounds |
+            asio::ssl::context::no_sslv2 |
+            asio::ssl::context::single_dh_use);
+
+        try {
+            ssl_context_.use_certificate_chain_file("certs/cert.pem");
+            ssl_context_.use_private_key_file("certs/key.pem", asio::ssl::context::pem);
+            if (std::filesystem::exists("certs/dhparam.pem")) {
+                ssl_context_.use_tmp_dh_file("certs/dhparam.pem");
+            } else {
+                std::cerr << "DH file missing, skipping DH setup.\n";
+            }
+        } catch (const asio::system_error& e) {
+            std::cerr << "SSL setup failed: " << e.what() << std::endl;
+            return false;
+        }
+    }
+    return true;
+}
+#else
+bool Server::setup_ssl() {
+    return false;
+}
+#endif
 
 static std::string ext_type(const std::string &ext) {
     std::string e = ext;

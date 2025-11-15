@@ -2,8 +2,26 @@
 #define WEBSOCKETLIB_UTILS_H
 
 #include "request.h"
-// TODO: don't use openssl
-#include <openssl/sha.h>
+#include "hash/sha1_wrapper.h"
+
+inline std::string base64_encode(const unsigned char *src, size_t len) {
+    static const char *tbl = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((len + 2) / 3) * 4);
+    unsigned val = 0;
+    int valb = -6;
+    for (size_t i = 0; i < len; ++i) {
+        val = (val << 8) | src[i];
+        valb += 8;
+        while (valb >= 0) {
+            out.push_back(tbl[(val >> valb) & 0x3F]);
+            valb -= 6;
+        }
+    }
+    if (valb > -6) out.push_back(tbl[((val << 8) >> (valb + 8)) & 0x3F]);
+    while (out.size() % 4) out.push_back('=');
+    return out;
+}
 
 inline std::string ws_accept_key(std::string_view client_key) {
     static constexpr char kMagic[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -13,16 +31,12 @@ inline std::string ws_accept_key(std::string_view client_key) {
     concat.append(client_key.data(), client_key.size());
     concat.append(kMagic);
 
-    unsigned char sha1[SHA_DIGEST_LENGTH];
-    SHA1(reinterpret_cast<const unsigned char *>(concat.data()), concat.size(), sha1);
+    Chocobo1::SHA1 hash;
+    hash.addData(concat.data(), concat.size());
+    hash.finalize();
+    auto digest = hash.toArray(); // std::array<unsigned char, 20>
 
-    std::string out;
-    out.resize(4 * ((SHA_DIGEST_LENGTH + 2) / 3));
-    int n = EVP_EncodeBlock(
-        reinterpret_cast<unsigned char *>(&out[0]),
-        sha1, SHA_DIGEST_LENGTH);
-    out.resize(n);
-    return out;
+    return base64_encode(digest.data(), digest.size());
 }
 
 inline Response build_101_response(std::string_view accept_key) {

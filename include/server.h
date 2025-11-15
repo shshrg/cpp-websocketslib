@@ -1,8 +1,10 @@
 #ifndef ASIO_CANCEL_SERVER_H
 #define ASIO_CANCEL_SERVER_H
 
-#include <asio.hpp>
+#ifdef USE_SSL
 #include <asio/ssl.hpp>
+#endif
+#include <asio.hpp>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -45,19 +47,21 @@ public:
 
     explicit Server(asio::io_context &io_context, const asio::ip::address &address, unsigned short port,
                     bool use_ssl = false)
-        : io_context_(io_context),
-          acceptor_(io_context_, tcp::endpoint(address, port)),
-          use_ssl_(use_ssl), ssl_context_(asio::ssl::context::tls_server) {
-        if (use_ssl_) {
-            ssl_context_.set_options(
-                asio::ssl::context::default_workarounds |
-                asio::ssl::context::no_sslv2 |
-                asio::ssl::context::single_dh_use);
-
-            ssl_context_.use_certificate_chain_file("certs/cert.pem");
-            ssl_context_.use_private_key_file("certs/key.pem", asio::ssl::context::pem);
-            ssl_context_.use_tmp_dh_file("certs/dhparam.pem");
-        }
+    : io_context_(io_context),
+    acceptor_(io_context_, tcp::endpoint(address, port))
+    #ifdef USE_SSL
+    , use_ssl_(use_ssl), ssl_context_(asio::ssl::context::tls_server)
+    #else
+    , use_ssl_(false)
+    #endif
+    {
+    #ifdef USE_SSL
+    if (use_ssl_ && !setup_ssl())
+        throw std::runtime_error("SSL setup failed");
+    #else
+    if (use_ssl)
+        std::cerr << "WARNING: SSL requested but OpenSSL is disabled!\n";
+    #endif
     }
 
     // Method Interfaces
@@ -128,6 +132,9 @@ private:
     void emit_all();
     void remove_client(size_t client_id);
 
+    //ssl
+    bool setup_ssl();
+
     // Routing
     template<typename F>
     void add_route(Method method, std::string path, F h) {
@@ -173,8 +180,12 @@ private:
     asio::io_context &io_context_;
     asio::ip::tcp::acceptor acceptor_;
 
-    bool use_ssl_;
-    asio::ssl::context ssl_context_;
+    #ifdef USE_SSL
+        bool use_ssl_;
+        asio::ssl::context ssl_context_;
+    #else
+        bool use_ssl_ = false;
+    #endif
 
     std::optional<asio::executor_work_guard<asio::io_context::executor_type> > work_guard_;
     std::vector<std::thread> workers_;

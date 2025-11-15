@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 project(websocketlib LANGUAGES CXX)
 
-add_compile_definitions(_WIN32_WINNT=0x0A00)
+if (WIN32)
+    add_compile_definitions(_WIN32_WINNT=0x0A00)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,8 +20,28 @@ FetchContent_MakeAvailable(asio)
 
 set(ASIO_INCLUDE_DIR "${asio_SOURCE_DIR}/asio/include")
 
-# ===== Find OpenSSL =====
-find_package(OpenSSL REQUIRED)
+# ===== Hash =====
+set(SHA1_URL "https://raw.githubusercontent.com/Chocobo1/Hash/master/src/sha1.h")
+set(SHA1_HEADER "${CMAKE_BINARY_DIR}/_deps/sha1/sha1.h")
+
+file(DOWNLOAD "${SHA1_URL}" "${SHA1_HEADER}" SHOW_PROGRESS)
+
+# ===== OpenSSL =====
+option(USE_OPENSSL "Enable SSL support" ON)
+
+if(USE_OPENSSL)
+    find_package(OpenSSL)
+    if(OpenSSL_FOUND)
+        message(STATUS "OpenSSL found: ${OPENSSL_VERSION}")
+        add_compile_definitions(USE_SSL)
+        set(USE_SSL_ENABLED TRUE)
+    else()
+        message(WARNING "OpenSSL NOT found -> building WITHOUT SSL")
+        set(USE_SSL_ENABLED FALSE)
+    endif()
+else()
+    set(USE_SSL_ENABLED FALSE)
+endif()
 
 add_library(my_http_lib
         src/server.cpp
@@ -32,13 +54,16 @@ target_include_directories(my_http_lib
         PUBLIC
         ${CMAKE_SOURCE_DIR}/include
         ${ASIO_INCLUDE_DIR}
+        ${CMAKE_BINARY_DIR}/_deps/sha1
 )
-# TODO: no openssl
-target_link_libraries(my_http_lib
-        PUBLIC
-        OpenSSL::SSL
-        OpenSSL::Crypto
-)
+
+if(USE_SSL_ENABLED)
+    target_link_libraries(my_http_lib
+            PUBLIC
+            OpenSSL::SSL
+            OpenSSL::Crypto
+    )
+endif()
 
 if (WIN32)
     target_link_libraries(my_http_lib
