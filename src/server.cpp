@@ -5,7 +5,6 @@
 #include "http/utils.h"
 #include "io_helpers.h"
 #include <asio/stream_file.hpp>
-#include <asio/file_base.hpp>
 
 void Server::start(size_t worker_threads) {
     if (work_guard_) return;
@@ -57,11 +56,12 @@ asio::awaitable<void> Server::do_accept() {
 
 
 template<typename Socket>
-asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation_slot token, size_t client_id) {
+asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation_slot token) {
     Request req = co_await do_read(socket, token);
     std::cout << req.to_string() << "\n";
 
     if (req.is_ws_upgrade()) {
+        std::cout << "It is an upgrade!" << std::endl;
         const auto *handlers = find_ws(req.path);
         if (!handlers) {
             Response resp = Response::not_found("No such route for ws!");
@@ -76,7 +76,7 @@ asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation
                                        asio::bind_cancellation_slot(token, asio::use_awaitable));
             co_return;
         }
-        co_await process_session_ws(socket, key, handlers, token, client_id);
+        co_await process_session_ws(socket, key, handlers, token);
         co_return;
     }
     Response resp = co_await handle_request(req);
@@ -84,17 +84,24 @@ asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation
 }
 
 
-void Server::register_websocket(size_t id, std::shared_ptr<WebSocket> ws)
-{
-    std::lock_guard lock(ws_mutex);
-    websockets[id] = ws;
-}
+// TODO FIX THIS!
+// template<typename Socket>
+// asio::awaitable<void> Server::process_session_ws(Socket &socket,
+//                                          const std::string &sec_ws_key,
+//                                          const WsHandlers *handlers,
+//                                          asio::cancellation_slot token)
+// {
+//     std::string accept = ws_accept_key(sec_ws_key);
+//     Response resp = build_101_response(accept);
+//     co_await asio::async_write(socket, asio::buffer(resp.to_string()),
+//                                asio::bind_cancellation_slot(token, asio::use_awaitable));
+//     if (handlers->on_open) handlers->on_open();
 
-void Server::remove_websocket(size_t id)
-{
-    std::lock_guard lock(ws_mutex);
-    websockets.erase(id);
-}
+//     co_await do_read_loop(socket, handlers, token);
+
+//     co_return;
+// }
+
 
 
 asio::awaitable<Response> Server::handle_request(const Request &req) {
@@ -126,14 +133,19 @@ asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id
     } guard{this, client_id};
 
     if (use_ssl_) {
-        std::cout << "Client " << client_id << " use TLS\n";
-        asio::ssl::stream<tcp::socket> ssl_stream(std::move(socket), ssl_context_);
-        co_await ssl_stream.async_handshake(asio::ssl::stream_base::server,
+	#ifdef USE_SSL
+		asio::ssl::stream<tcp::socket> ssl_stream(std::move(socket), ssl_context_);
+		co_await ssl_stream.async_handshake(asio::ssl::stream_base::server,
                                             asio::bind_cancellation_slot(token, asio::use_awaitable));
-        co_await process_session(ssl_stream, token, client_id);
-    } else {
-        co_await process_session(socket, token, client_id);
-    }
+		std::cout << "Client " << client_id << " use SSL\n";
+		co_await process_session(ssl_stream, token);
+	#else
+		std::cerr << "SSL requested but OpenSSL disabled — using plain TCP.\n";
+		co_await process_session(socket, token);
+	#endif
+	} else {
+		co_await process_session(socket, token);
+	}
     co_return;
 }
 
@@ -236,6 +248,35 @@ void Server::remove_client(size_t client_id) {
     client_cancel_.erase(client_id);
 }
 
+#ifdef USE_SSL
+bool Server::setup_ssl() {
+    if (use_ssl_) {
+        ssl_context_.set_options(
+            asio::ssl::context::default_workarounds |
+            asio::ssl::context::no_sslv2 |
+            asio::ssl::context::single_dh_use);
+
+        try {
+            ssl_context_.use_certificate_chain_file("certs/cert.pem");
+            ssl_context_.use_private_key_file("certs/key.pem", asio::ssl::context::pem);
+            if (std::filesystem::exists("certs/dhparam.pem")) {
+                ssl_context_.use_tmp_dh_file("certs/dhparam.pem");
+            } else {
+                std::cerr << "DH file missing, skipping DH setup.\n";
+            }
+        } catch (const asio::system_error& e) {
+            std::cerr << "SSL setup failed: " << e.what() << std::endl;
+            return false;
+        }
+    }
+    return true;
+}
+#else
+bool Server::setup_ssl() {
+    return false;
+}
+#endif
+
 static std::string ext_type(const std::string &ext) {
     std::string e = ext;
     if (!e.empty() && e.front() == '.')
@@ -301,7 +342,7 @@ asio::awaitable<Response> Server::serve_static(const Request &req) {
     if (!fs::exists(canon_srv_path, ec) || ec)
         co_return Response::not_found("File not found in root directory");
 
-    res.set_header("content-type", ext_type(canon_srv_path.extension()));
+    res.set_header("content-type", ext_type(canon_srv_path.extension().string()));
 
     res.sendfile_path = canon_srv_path;
     res.sendfile_size = fs::file_size(canon_srv_path);

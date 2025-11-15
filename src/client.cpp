@@ -1,5 +1,7 @@
 #include <asio.hpp>
+#ifdef USE_SSL
 #include <asio/ssl.hpp>
+#endif
 #include <asio/awaitable.hpp>
 #include <asio/use_awaitable.hpp>
 #include <asio/experimental/awaitable_operators.hpp>
@@ -12,7 +14,11 @@ using asio::co_spawn;
 using asio::detached;
 using asio::ip::tcp;
 using namespace asio::experimental::awaitable_operators;
+#ifdef USE_SSL
 using ssl_socket = asio::ssl::stream<tcp::socket>;
+#else
+using ssl_socket = asio::ip::tcp::socket;
+#endif
 
 awaitable<void> do_read(ssl_socket& socket) {
     try {
@@ -89,20 +95,19 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         asio::io_context io_context;
-
-        asio::ssl::context ssl_ctx(asio::ssl::context::tls_client);
-        // ssl_ctx.set_verify_mode(asio::ssl::verify_none);
-
         tcp::resolver resolver(io_context);
         auto endpoints = resolver.resolve("127.0.0.1", port);
-        // tcp::socket socket(io_context);
-        // asio::connect(socket, endpoints);
-        // std::cout << "Connected to server.\n";
 
+#ifdef USE_SSL
+        asio::ssl::context ssl_ctx(asio::ssl::context::tls_client);
         ssl_socket socket(io_context, ssl_ctx);
         asio::connect(socket.lowest_layer(), endpoints);
         socket.handshake(asio::ssl::stream_base::client);
-        std::cout << "Connected securely to server.\n";
+#else
+        ssl_socket socket(io_context);
+        asio::connect(socket, endpoints);
+#endif
+
 
         co_spawn(io_context, do_read(socket), detached);
         co_spawn(io_context, do_write(socket), detached);

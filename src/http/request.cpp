@@ -62,7 +62,7 @@ Method Request::method_enum(const std::string &s) noexcept {
         {"GET", Method::GET},
         {"POST", Method::POST},
         {"PUT", Method::PUT},
-        {"DELETE", Method::DELETE},
+        {"DELETE", Method::DELETE_},
         {"PATCH", Method::PATCH},
         {"HEAD", Method::HEAD},
         {"OPTIONS", Method::OPTIONS}
@@ -110,4 +110,3 @@ bool Request::is_ws_upgrade() const {
     }
     return true;
 }
-

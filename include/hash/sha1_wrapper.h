@@ -1,0 +1,10 @@
+#ifndef WEBSOCKETLIB_SHA1_WRAPPER_H
+#define WEBSOCKETLIB_SHA1_WRAPPER_H
+
+#ifdef BLOCK_SIZE
+#  undef BLOCK_SIZE
+#endif
+
+#include "sha1.h"
+
+#endif //WEBSOCKETLIB_SHA1_WRAPPER_H

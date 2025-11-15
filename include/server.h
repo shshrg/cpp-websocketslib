@@ -1,18 +1,18 @@
 #ifndef ASIO_CANCEL_SERVER_H
 #define ASIO_CANCEL_SERVER_H
 
-#include <asio.hpp>
+#ifdef USE_SSL
 #include <asio/ssl.hpp>
+#endif
+#include <asio.hpp>
 #include <memory>
 #include <utility>
 #include <vector>
 #include <filesystem>
 #include "http/request.h"
 #include "http/response.h"
+#include "websocket/WsFrame.h"
 #include "websocket/ws_helpers.h"
-// #include "websocket/WebSocket.h"
-
-class WebSocket;
 
 using HandlerAsync = std::function<asio::awaitable<Response>(const Request &)>;
 using HandlerSync = std::function<Response(const Request &)>;
@@ -47,19 +47,21 @@ public:
 
     explicit Server(asio::io_context &io_context, const asio::ip::address &address, unsigned short port,
                     bool use_ssl = false)
-        : io_context_(io_context),
-          acceptor_(io_context_, tcp::endpoint(address, port)),
-          use_ssl_(use_ssl), ssl_context_(asio::ssl::context::tls_server) {
-        if (use_ssl_) {
-            ssl_context_.set_options(
-                asio::ssl::context::default_workarounds |
-                asio::ssl::context::no_sslv2 |
-                asio::ssl::context::single_dh_use);
-
-            ssl_context_.use_certificate_chain_file("certs/cert.pem");
-            ssl_context_.use_private_key_file("certs/key.pem", asio::ssl::context::pem);
-            ssl_context_.use_tmp_dh_file("certs/dhparam.pem");
-        }
+    : io_context_(io_context),
+    acceptor_(io_context_, tcp::endpoint(address, port))
+    #ifdef USE_SSL
+    , use_ssl_(use_ssl), ssl_context_(asio::ssl::context::tls_server)
+    #else
+    , use_ssl_(false)
+    #endif
+    {
+    #ifdef USE_SSL
+    if (use_ssl_ && !setup_ssl())
+        throw std::runtime_error("SSL setup failed");
+    #else
+    if (use_ssl)
+        std::cerr << "WARNING: SSL requested but OpenSSL is disabled!\n";
+    #endif
     }
 
     // Method Interfaces
@@ -73,7 +75,7 @@ public:
     void Put(std::string path, F h) { add_route(Method::PUT, std::move(path), std::move(h)); }
 
     template<typename F>
-    void Delete(std::string path, F h) { add_route(Method::DELETE, std::move(path), std::move(h)); }
+    void Delete(std::string path, F h) { add_route(Method::DELETE_, std::move(path), std::move(h)); }
 
     // Mount Static
     void MountStatic(std::string url_prefix, fs::path root);
@@ -114,7 +116,7 @@ public:
         WsHandlers handlers_{};
     };
 
-    WsRouter WebSocketRouter(std::string path) { return WsRouter{*this, std::move(path)}; }
+    WsRouter WebSocket(std::string path) { return WsRouter{*this, std::move(path)}; }
 
     const WsHandlers *find_ws(const std::string &path) const {
         auto it = ws_routes_.find(path);
@@ -122,12 +124,6 @@ public:
     }
 
 private:
-    // Managing WebSockets
-    std::unordered_map<size_t, std::weak_ptr<WebSocket>> websockets;
-    std::mutex ws_mutex;
-    void register_websocket(size_t id, std::shared_ptr<WebSocket> ws);
-    void remove_websocket(size_t id);
-
     // Client handling
     asio::cancellation_slot get_client_slot(size_t client_id);
     asio::awaitable<void> handle_client(tcp::socket socket, size_t client_id);
@@ -135,6 +131,9 @@ private:
     void emit_client(size_t client_id);
     void emit_all();
     void remove_client(size_t client_id);
+
+    //ssl
+    bool setup_ssl();
 
     // Routing
     template<typename F>
@@ -163,7 +162,7 @@ private:
     asio::awaitable<Response> handle_request(const Request &request);
 
     template<typename Socket>
-    asio::awaitable<void> process_session(Socket &socket, asio::cancellation_slot token, size_t client_id);
+    asio::awaitable<void> process_session(Socket &socket, asio::cancellation_slot token);
 
 
     asio::awaitable<void> do_accept();
@@ -176,13 +175,17 @@ private:
 
     template<typename Socket>
     asio::awaitable<void> process_session_ws(Socket &socket, const std::string &sec_ws_key,
-                                             const WsHandlers *handlers, asio::cancellation_slot token, size_t client_id);
+                                             const WsHandlers *handlers, asio::cancellation_slot token);
 
     asio::io_context &io_context_;
     asio::ip::tcp::acceptor acceptor_;
 
-    bool use_ssl_;
-    asio::ssl::context ssl_context_;
+    #ifdef USE_SSL
+        bool use_ssl_;
+        asio::ssl::context ssl_context_;
+    #else
+        bool use_ssl_ = false;
+    #endif
 
     std::optional<asio::executor_work_guard<asio::io_context::executor_type> > work_guard_;
     std::vector<std::thread> workers_;
