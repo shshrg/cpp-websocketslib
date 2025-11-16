@@ -260,17 +260,11 @@ bool Server::setup_ssl() {
     if (use_ssl_) {
         ssl_context_.set_options(
             asio::ssl::context::default_workarounds |
-            asio::ssl::context::no_sslv2 |
-            asio::ssl::context::single_dh_use);
+            asio::ssl::context::no_sslv2);
 
         try {
-            ssl_context_.use_certificate_chain_file("certs/cert.pem");
-            ssl_context_.use_private_key_file("certs/key.pem", asio::ssl::context::pem);
-            if (std::filesystem::exists("certs/dhparam.pem")) {
-                ssl_context_.use_tmp_dh_file("certs/dhparam.pem");
-            } else {
-                std::cerr << "DH file missing, skipping DH setup.\n";
-            }
+            ssl_context_.use_certificate_chain_file("certs/localhost.crt");
+            ssl_context_.use_private_key_file("certs/localhost.key", asio::ssl::context::pem);
         } catch (const asio::system_error& e) {
             std::cerr << "SSL setup failed: " << e.what() << std::endl;
             return false;

@@ -1,9 +1,11 @@
 #!/bin/bash
+set -e
 
 CERT_DIR="certs"
-CERT_FILE="$CERT_DIR/cert.pem"
-KEY_FILE="$CERT_DIR/key.pem"
-DHPARAM_FILE="$CERT_DIR/dhparam.pem"
+ROOT_CA_KEY="$CERT_DIR/rootCA.key"
+ROOT_CA_CERT="$CERT_DIR/rootCA.pem"
+LOCAL_KEY="$CERT_DIR/localhost.key"
+LOCAL_CERT="$CERT_DIR/localhost.crt"
 DAYS_VALID=365
 KEY_BITS=2048
 
@@ -41,56 +43,36 @@ DNS.1 = localhost
 IP.1 = 127.0.0.1
 EOF
 
-# ===== Check if certificate and key exist =====
-if [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
-    echo "Certificate and key already exist. Skipping generation."
-
-elif [[ -f "$CERT_FILE" && ! -f "$KEY_FILE" ]]; then
-    echo "Error: Certificate exists but private key is missing!"
-    rm -f "$TEMP_CNF"
-    exit 1
-
-elif [[ ! -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
-    echo "Generating self-signed certificate using existing private key..."
-    openssl req -new -x509 -key "$KEY_FILE" -out "$CERT_FILE" -days $DAYS_VALID \
-        -extensions v3_req \
-        -config "$TEMP_CNF" || {
-        echo "Error: Failed to generate certificate!" >&2
-        rm -f "$TEMP_CNF"
-        exit 1
-    }
-
+# ===== Generate Root CA =====
+echo "=== Generating Root CA ==="
+if [[ ! -f "$ROOT_CA_KEY" || ! -f "$ROOT_CA_CERT" ]]; then
+    openssl genrsa -out "$ROOT_CA_KEY" $KEY_BITS
+    openssl req -x509 -new -nodes -key "$ROOT_CA_KEY" -sha256 -days 1825 \
+        -out "$ROOT_CA_CERT" -subj "/CN=Local Dev Root CA"
+    echo "Root CA created: $ROOT_CA_CERT"
 else
-    echo "Generating new private key and self-signed certificate with SAN..."
-    openssl req -x509 -newkey rsa:$KEY_BITS -nodes -keyout "$KEY_FILE" \
-        -out "$CERT_FILE" -days $DAYS_VALID \
-        -extensions v3_req \
-        -config "$TEMP_CNF" || {
-        echo "Error: Failed to generate certificate and key!" >&2
-        rm -f "$TEMP_CNF"
-        exit 1
-    }
+    echo "Root CA already exists, skipping."
 fi
+
+# ===== Generate localhost key and CSR =====
+echo "=== Generating localhost key and CSR ==="
+openssl genrsa -out "$LOCAL_KEY" $KEY_BITS
+openssl req -new -key "$LOCAL_KEY" -out "$CERT_DIR/localhost.csr" -config "$TEMP_CNF"
+
+# ===== Sign localhost certificate with Root CA =====
+echo "=== Signing localhost certificate with Root CA ==="
+openssl x509 -req -in "$CERT_DIR/localhost.csr" -CA "$ROOT_CA_CERT" -CAkey "$ROOT_CA_KEY" \
+    -CAcreateserial -out "$LOCAL_CERT" -days $DAYS_VALID -sha256 -extensions v3_req -extfile "$TEMP_CNF"
 
 # ===== Set file permissions on non-Windows =====
 if [[ "$IS_WINDOWS" == false ]]; then
-    chmod 600 "$KEY_FILE"
+    chmod 600 "$LOCAL_KEY"
 fi
 
-# ===== Generate DH parameters =====
-if [[ ! -f "$DHPARAM_FILE" ]]; then
-    echo "Generating Diffie-Hellman parameters (may take a while)..."
-    if [[ "$IS_WINDOWS" == true ]]; then
-        echo "Skipping DH param generation on Windows"
-    else
-        openssl dhparam -out "$DHPARAM_FILE" $KEY_BITS && \
-        echo "DH parameters generated successfully."
-    fi
-else
-    echo "DH parameters already exist. Skipping generation."
-fi
+# Cleanup temporary files
+rm -f "$TEMP_CNF" "$CERT_DIR/localhost.csr" "$CERT_DIR/rootCA.srl"
 
-# Cleanup temporary config
-rm -f "$TEMP_CNF"
-
-echo "Certificate generation complete."
+echo "=== Done ==="
+echo "Root CA: $ROOT_CA_CERT (import this into your OS/browser)"
+echo "Local server cert: $LOCAL_CERT"
+echo "Local server key: $LOCAL_KEY"
