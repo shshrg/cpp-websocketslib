@@ -1,0 +1,93 @@
+# --- Build artifacts ---
+build/
+build-*/
+cmake-build-*/
+out/
+bin/
+lib/
+obj/
+test_uwebsockets/
+# --- CMake / Ninja / Make ---
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+
+# --- Visual Studio / CLion / VSCode ---
+.vscode/
+.idea/
+*.code-workspace
+*.suo
+*.user
+*.vcxproj*
+*.ncb
+*.opendb
+*.sln
+
+# --- Compiler outputs ---
+*.o
+*.obj
+*.lo
+*.la
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+
+# --- Debug / profiling / logs ---
+*.dSYM/
+*.stackdump
+*.core
+*.gmon.out
+*.gcda
+*.gcno
+*.gcov
+*.log
+
+# --- Package / release artifacts ---
+dist/
+release/
+debug/
+*.tar.gz
+*.zip
+
+# --- Generated docs ---
+docs/html/
+docs/latex/
+DoxygenOutput/
+
+# --- Test / coverage ---
+coverage/
+lcov/
+*.profraw
+*.profdata
+
+# --- Temporary files ---
+*.swp
+*.swm
+*.tmp
+*.bak
+*~
+.#*
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# SSL certificates and private keys
+certs/
+*.pem
+*.crt
+*.key
+*.csr
+*.der
+*.p12

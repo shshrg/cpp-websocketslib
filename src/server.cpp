@@ -43,8 +43,11 @@ asio::awaitable<void> Server::do_accept() {
 
     while (true) {
         ++client_id;
-        tcp::socket socket = co_await acceptor_.async_accept(
-            asio::bind_cancellation_slot(server_slot_, asio::use_awaitable));
+        auto [ec, socket] = co_await acceptor_.async_accept(
+            asio::as_tuple(asio::bind_cancellation_slot(server_slot_, asio::use_awaitable)));
+
+        if (ec == asio::error::operation_aborted)
+            co_return;
 
         std::cout << "New client connected: " << client_id << "\n";
 
@@ -90,9 +93,6 @@ asio::awaitable<void> Server::process_session_ws(Socket &socket,
                                          asio::cancellation_slot token,
                                          size_t client_id)
 {
-    std::string accept = ws_accept_key(sec_ws_key);
-    Response resp = build_101_response(accept);
-
     auto ws = std::make_shared<WebSocket>(
         std::move(socket), handlers, token, client_id);
 
@@ -177,7 +177,10 @@ asio::awaitable<void> Server::do_write(Socket &socket, const Response &response_
     if (!response.sendfile_path.empty()) {
         asio::stream_file file(co_await asio::this_coro::executor);
         std::error_code ec;
-        file.open(response.sendfile_path.string().c_str(), asio::file_base::read_only, ec);
+        auto open_res = file.open(response.sendfile_path.string().c_str(), asio::file_base::read_only, ec);
+
+        (void)open_res;
+
         if (ec) co_return;
 
         auto file_sz = file.size(ec);

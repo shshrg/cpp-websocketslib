@@ -161,7 +161,7 @@ private:
     void register_websocket(size_t id, std::shared_ptr<WebSocket> ws)
     {
         std::lock_guard lock(ws_mutex);
-        websockets_[id] = ws;
+        websockets_[id] = std::move(ws);
     }
     void remove_websocket(size_t id)
     {
