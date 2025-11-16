@@ -1,6 +1,8 @@
 #include "server.h"
 #include <iostream>
 #include <string>
+#include <filesystem>
+#include <sstream>
 
 int main(int argc, char *argv[]) {
     unsigned short port = 8080;
@@ -52,19 +54,65 @@ int main(int argc, char *argv[]) {
         return Response::text("This was a post method from sync");
     });
 
+    server.Get("/api/files", [](const Request &req) {
+        namespace fs = std::filesystem;
+
+        fs::path root = "./www"; // same as MountStatic("/", "./www")
+
+        std::vector<std::string> urls;
+        std::error_code ec;
+
+        if (!fs::exists(root, ec) || ec) {
+            return Response::not_found("www root not found");
+        }
+
+        for (auto const &entry: fs::recursive_directory_iterator(root)) {
+            if (!entry.is_regular_file()) continue;
+
+            fs::path rel = fs::relative(entry.path(), root, ec);
+            if (ec) continue;
+
+            // this becomes the URL the browser will use
+            std::string web_path = "/" + rel.generic_string(); // e.g. "/docs/report.pdf"
+            urls.push_back(std::move(web_path));
+        }
+
+        // Build simple JSON: ["...","...",...]
+        std::ostringstream oss;
+        oss << "[\n";
+        for (size_t i = 0; i < urls.size(); ++i) {
+            oss << "  \"";
+            for (char c: urls[i]) {
+                if (c == '\"') oss << "\\\"";
+                else oss << c;
+            }
+            oss << "\"";
+            if (i + 1 < urls.size()) oss << ",";
+            oss << "\n";
+        }
+        oss << "]\n";
+
+        Response res = Response::text(oss.str());
+        res.set_header("content-type", "application/json");
+        return res;
+    });
+
     server.MountStatic("/", "./www");
     server.MountStatic("/assets/", "./www/assets");
     server.MountStatic("/assets/ui", "./www/assets/ui");
 
     server.WebSocketRouter("/chat")
-            .on_open([] {
+            .on_open([](const auto &ws) {
                 std::cout << "WebSocket opened\n";
+                ws->send_text_async("Welcome!");
             })
-            .on_message([](std::string_view msg) {
+            .on_message([](const auto &ws, std::string_view msg) {
                 std::cout << "WebSocket message received\n";
+                ws->send_text_async("Echo: " + std::string(msg));
             })
-            .on_close([](uint16_t code, std::string_view reason) {
-                std::cout << "WebSocket closed\n";
+            .on_close([](const auto &ws, uint16_t code, std::string_view reason) {
+                std::cout << "WebSocket closed with " << code
+                        << " reason: " << reason << "\n";
             });
 
     server.start(num_threads);

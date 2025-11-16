@@ -12,10 +12,23 @@
 
 // WebSocket abstraction, used to represent one connection
 
+class WebSocket;
+
+using WsOpenHandler = std::function<void(std::shared_ptr<WebSocket>)>;
+using WsMessageHandler = std::function<void(std::shared_ptr<WebSocket>, std::string_view msg)>;
+using WsCloseHandler = std::function<void(std::shared_ptr<WebSocket>, uint16_t code, std::string_view reason)>;
+
+struct WsHandlers {
+    WsOpenHandler on_open{};
+    WsMessageHandler on_message{};
+    WsCloseHandler on_close{};
+};
+
 enum: uint8_t {
     WS_OPEN = 0x0,
     WS_CLOSED = 0x1
 };
+
 
 
 using TcpSocket = asio::basic_stream_socket<asio::ip::tcp>;
@@ -28,7 +41,7 @@ using TcpSocket = asio::basic_stream_socket<asio::ip::tcp>;
 #endif
 
 
-class WebSocket : std::enable_shared_from_this<WebSocket> {
+class WebSocket : public std::enable_shared_from_this<WebSocket> {
 public:
     template<typename Socket>
     WebSocket(Socket &&socket, const WsHandlers *handlers, asio::cancellation_slot token, size_t client_id)
@@ -66,10 +79,11 @@ public:
         std::string out = resp.to_string();
         co_await async_write_any(socket_, asio::buffer(resp.to_string()), slot_);
 
-        if (handlers_.on_open) handlers_.on_open();
+
+        if (handlers_.on_open) handlers_.on_open(shared_from_this());
+
 
         co_await do_read_loop();
-        // state_.store(WS_OPEN, std::memory_order_release);
         co_return;
     }
 
@@ -91,11 +105,48 @@ public:
         }, socket_);
 
         if (handlers_.on_close)
-            handlers_.on_close(code, reason);
+            handlers_.on_close(shared_from_this(), code, reason);
 
         if (server_cleanup_)
             server_cleanup_(client_id_);
     }
+
+    void close_async(uint16_t code = 1000, std::string reason = {}) {
+        auto self = shared_from_this();
+        auto ex = std::visit(
+            [](auto &sock) { return sock.get_executor(); },
+            socket_
+        );
+
+        asio::co_spawn(
+            ex,
+            [self, code, reason = std::move(reason)]() mutable -> asio::awaitable<void> {
+                co_await self->send_close_with_reason(code, reason);
+                self->close(code, reason);
+                co_return;
+            },
+            asio::detached
+        );
+    }
+
+    void send_text_async(std::string payload) {
+        auto self = shared_from_this();
+
+        auto ex = std::visit(
+            [](auto &sock) { return sock.get_executor(); },
+            socket_
+        );
+
+        asio::co_spawn(
+            ex,
+            [self, payload = std::move(payload)]() mutable -> asio::awaitable<void> {
+                co_await self->send_text(payload);
+                co_return;
+            },
+            asio::detached
+        );
+    }
+
 
 private:
     AnySocket socket_;
@@ -281,7 +332,7 @@ private:
         if (opcode == WS_PING) {
             if (!f.fin) {
                 co_await send_close_with_reason(1002, "Fragmented control");
-                if (handlers_.on_close) handlers_.on_close(1002, "Fragmented control");
+                if (handlers_.on_close) handlers_.on_close(shared_from_this(), 1002, "Fragmented control");
                 co_return;
             }
             co_await handle_ping_frame(f.payload_data);
@@ -290,7 +341,7 @@ private:
         if (opcode == WS_PING) {
             if (!f.fin) {
                 co_await send_close_with_reason(1002, "Fragmented control");
-                if (handlers_.on_close) handlers_.on_close(1002, "Fragmented control");
+                if (handlers_.on_close) handlers_.on_close(shared_from_this(), 1002, "Fragmented control");
                 co_return;
             }
             co_return;
@@ -298,7 +349,7 @@ private:
         if (opcode == WS_CLOSE) {
             if (!f.fin) {
                 co_await send_close_with_reason(1002, "Fragmented control");
-                if (handlers_.on_close) handlers_.on_close(1002, "Fragmented control");
+                if (handlers_.on_close) handlers_.on_close(shared_from_this(), 1002, "Fragmented control");
                 co_return;
             }
             co_await handle_close_frame(f.payload_data);
@@ -307,7 +358,7 @@ private:
         if (opcode == WS_TEXT || opcode == WS_BINARY) {
             if (fb.assembling) {
                 co_await send_close_with_reason(1002, "New data while assembling");
-                if (handlers_.on_close) handlers_.on_close(1002, "New data while assembling");
+                if (handlers_.on_close) handlers_.on_close(shared_from_this(), 1002, "New data while assembling");
                 co_return;
             }
             fb.start(opcode, f.payload_length);
@@ -324,7 +375,7 @@ private:
         if (opcode == WS_CONT) {
             if (!fb.assembling) {
                 co_await send_close_with_reason(1002, "Continuattion without initial frame");
-                if (handlers_.on_close) handlers_.on_close(1002, "Continuation without inital frame");
+                if (handlers_.on_close) handlers_.on_close(shared_from_this(), 1002, "Continuation without inital frame");
             }
 
             fb.append(f.payload_data);
@@ -359,7 +410,7 @@ private:
     }
 
     asio::awaitable<void> handle_text_bytes(const std::string &payload) {
-        if (handlers_.on_message) handlers_.on_message(std::string(payload));
+        if (handlers_.on_message) handlers_.on_message(shared_from_this(), std::string(payload));
         co_await send_text(payload);
         co_return;
     }

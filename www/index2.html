@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>File Downloader</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 600px;
+            margin: 2rem auto;
+            padding: 1rem 1.5rem;
+            background: #f5f5f5;
+            border-radius: 8px;
+        }
+        h1 { font-size: 1.4rem; }
+        select, button {
+            font-size: 1rem;
+            padding: 0.4rem 0.6rem;
+            margin-top: 0.5rem;
+        }
+        #status {
+            margin-top: 0.75rem;
+            font-size: 0.9rem;
+            color: #555;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+<h1>Download a file from server</h1>
+
+<p>Select any file found under <code>./www</code> and download it via your server:</p>
+
+<label>
+    Available files:<br>
+    <select id="fileSelect">
+        <option value="">Loading...</option>
+    </select>
+</label>
+
+<br><br>
+
+<button id="downloadBtn" disabled>Download</button>
+
+<div id="status"></div>
+
+<script>
+    const fileSelect  = document.getElementById('fileSelect');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const statusElem  = document.getElementById('status');
+
+    async function loadFileList() {
+        try {
+            statusElem.textContent = 'Fetching file list...';
+            const resp = await fetch('/api/files');
+            if (!resp.ok) {
+                statusElem.textContent = 'Failed to load file list: ' + resp.status;
+                fileSelect.innerHTML = '<option value="">(error)</option>';
+                downloadBtn.disabled = true;
+                return;
+            }
+
+            const files = await resp.json(); // expects array of strings
+
+            if (!Array.isArray(files) || files.length === 0) {
+                fileSelect.innerHTML = '<option value="">(no files found)</option>';
+                downloadBtn.disabled = true;
+                statusElem.textContent = 'No files found in ./www';
+                return;
+            }
+
+            fileSelect.innerHTML = '';
+            for (const path of files) {
+                const opt = document.createElement('option');
+                opt.value = path;       // e.g. "/docs/file.txt"
+                opt.textContent = path; // what user sees
+                fileSelect.appendChild(opt);
+            }
+            downloadBtn.disabled = false;
+            statusElem.textContent = 'File list loaded.';
+        } catch (e) {
+            console.error(e);
+            statusElem.textContent = 'Error loading file list: ' + e;
+            fileSelect.innerHTML = '<option value="">(error)</option>';
+            downloadBtn.disabled = true;
+        }
+    }
+
+    downloadBtn.addEventListener('click', () => {
+        const selected = fileSelect.value;
+        if (!selected) {
+            statusElem.textContent = 'Please select a file first.';
+            return;
+        }
+
+        // 🔴 This is the important part: we download *the file URL*, NOT /api/files
+        const a = document.createElement('a');
+        a.href = selected;   // e.g. "/docs/file.txt"
+        a.download = '';     // hint browser to download
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        statusElem.textContent = 'Requested download for: ' + selected;
+    });
+
+    // Load list when page loads
+    loadFileList();
+</script>
+</body>
+</html>

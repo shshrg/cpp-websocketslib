@@ -5,15 +5,6 @@
 #include <string>
 #include <algorithm>
 
-using WsOpenHandler = std::function<void()>;
-using WsMessageHandler = std::function<void(std::string_view msg)>;
-using WsCloseHandler = std::function<void(uint16_t code, std::string_view reason)>;
-
-struct WsHandlers {
-    WsOpenHandler on_open{};
-    WsMessageHandler on_message{};
-    WsCloseHandler on_close{};
-};
 
 struct FrameBody {
     bool assembling = false;
