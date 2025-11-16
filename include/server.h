@@ -11,8 +11,7 @@
 #include <filesystem>
 #include "http/request.h"
 #include "http/response.h"
-#include "websocket/WsFrame.h"
-#include "websocket/ws_helpers.h"
+#include "websocket/WebSocket.h"
 
 using HandlerAsync = std::function<asio::awaitable<Response>(const Request &)>;
 using HandlerSync = std::function<Response(const Request &)>;
@@ -116,7 +115,7 @@ public:
         WsHandlers handlers_{};
     };
 
-    WsRouter WebSocket(std::string path) { return WsRouter{*this, std::move(path)}; }
+    WsRouter WebSocketRouter(std::string path) { return WsRouter{*this, std::move(path)}; }
 
     const WsHandlers *find_ws(const std::string &path) const {
         auto it = ws_routes_.find(path);
@@ -156,13 +155,26 @@ private:
             co_return co_await fn(req);
         };
     }
+    // keep track of websockets for all connections
+    std::unordered_map<size_t, std::shared_ptr<WebSocket>> websockets_;
+    std::mutex ws_mutex;
+    void register_websocket(size_t id, std::shared_ptr<WebSocket> ws)
+    {
+        std::lock_guard lock(ws_mutex);
+        websockets_[id] = ws;
+    }
+    void remove_websocket(size_t id)
+    {
+        std::lock_guard lock(ws_mutex);
+        websockets_.erase(id);
+    }
 
     asio::awaitable<Response> serve_static(const Request &req);
 
     asio::awaitable<Response> handle_request(const Request &request);
 
     template<typename Socket>
-    asio::awaitable<void> process_session(Socket &socket, asio::cancellation_slot token);
+    asio::awaitable<void> process_session(Socket &socket, asio::cancellation_slot token, size_t client_id);
 
 
     asio::awaitable<void> do_accept();
@@ -175,7 +187,7 @@ private:
 
     template<typename Socket>
     asio::awaitable<void> process_session_ws(Socket &socket, const std::string &sec_ws_key,
-                                             const WsHandlers *handlers, asio::cancellation_slot token);
+                                             const WsHandlers *handlers, asio::cancellation_slot token, size_t client_id);
 
     asio::io_context &io_context_;
     asio::ip::tcp::acceptor acceptor_;

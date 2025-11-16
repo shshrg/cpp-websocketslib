@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
     server.MountStatic("/assets/", "./www/assets");
     server.MountStatic("/assets/ui", "./www/assets/ui");
 
-    server.WebSocket("/chat")
+    server.WebSocketRouter("/chat")
             .on_open([] {
                 std::cout << "WebSocket opened\n";
             })

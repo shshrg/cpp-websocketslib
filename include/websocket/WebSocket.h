@@ -7,46 +7,55 @@
 #include <atomic>
 #include "ws_helpers.h"
 #include "WsFrame.h"
-#include "server.h"
 #include "http/response.h"
 #include "http/utils.h"
+
+// WebSocket abstraction, used to represent one connection
 
 enum: uint8_t {
     WS_OPEN = 0x0,
     WS_CLOSED = 0x1
 };
 
-class Server;
 
-using TcpSocket = asio::ip::tcp::socket;
-using SslSocket = asio::ssl::stream<asio::ip::tcp::socket>;
+using TcpSocket = asio::basic_stream_socket<asio::ip::tcp>;
+using SslSocket = asio::ssl::stream<asio::basic_stream_socket<asio::ip::tcp>>;
+
 using AnySocket = std::variant<TcpSocket, SslSocket>;
 
 
 class WebSocket : std::enable_shared_from_this<WebSocket>
 {
 public:
-    WebSocket(TcpSocket &socket, std::shared_ptr<Server> server, const WsHandlers *handlers, asio::cancellation_slot token, size_t client_id)
-    : socket_(std::move(socket)),
-      server_(std::move(server)),
+    template<typename Socket>
+    WebSocket(Socket &&socket, const WsHandlers *handlers, asio::cancellation_slot token, size_t client_id)
+    : socket_(AnySocket(std::forward<Socket>(socket))),
       slot_(token),
       client_id_(client_id)
     {
         if (handlers) handlers_ = *handlers;
     }
+
+    
     asio::awaitable<void> start(const std::string &sec_ws_key)
     {
+        std::cout << "Hello from websocket.h\n";
         std::string accept = ws_accept_key(sec_ws_key);
         Response resp = build_101_response(accept);
 
         std::string out = resp.to_string();
-        co_await asio::async_write(socket_, asio::buffer(resp.to_string()), asio::bind_cancellation_slot(slot_, asio::use_awaitable));
+        co_await async_write_any(socket_, asio::buffer(resp.to_string()),slot_ );
+        
+        if (handlers_.on_open) handlers_.on_open();
+        
+        co_await do_read_loop();
+        state_.store(WS_OPEN, std::memory_order_release);
+        co_return;
     }
     asio::awaitable<void> send(std::vector<uint8_t> bytes);
     asio::awaitable<void> close(uint16_t code, const std::string_view &reason);
 private:
-    TcpSocket socket_;
-    std::weak_ptr<Server> server_;
+    AnySocket socket_;
     size_t client_id_;
 
     WsHandlers handlers_{};
@@ -64,7 +73,39 @@ private:
     std::string path;
     std::string client_id;
 
-    // --------functions from ws_helpers---------
+    // ---------helper functions to handle different socket types----------
+    template<typename SocketType, typename Buffer>
+    asio::awaitable<std::size_t> async_write_any(SocketType& st, Buffer buf, asio::cancellation_slot slot)
+    {
+        co_return co_await std::visit(
+            [&](auto& sock) -> asio::awaitable<std::size_t>
+            {
+                co_return co_await asio::async_write(
+                    sock,
+                    buf,
+                    asio::bind_cancellation_slot(slot, asio::use_awaitable)
+                );
+            },
+            st
+        );
+    }
+
+    template<typename SocketType, typename Buffer>
+    asio::awaitable<std::size_t> async_read_any(SocketType& st, Buffer buf, asio::cancellation_slot slot)
+    {
+        co_return co_await std::visit(
+            [&](auto& sock) -> asio::awaitable<std::size_t>
+            {
+                co_return co_await sock.async_read_some(
+                    buf,
+                    asio::bind_cancellation_slot(slot, asio::use_awaitable)
+                );
+            },
+            st
+        );
+    }
+
+    // --------------------functions from ws_helpers-----------------------
     asio::awaitable<void> send_text(const std::string & payload)
     {
         WsFrame out{};
@@ -91,7 +132,7 @@ private:
     }
     asio::awaitable<void> do_write(std::vector<uint8_t> const &bytes)
     {
-        co_await asio::async_write(socket_, asio::buffer(bytes), asio::bind_cancellation_slot(slot_, asio::use_awaitable));
+        co_await async_write_any(socket_, asio::buffer(bytes), slot_);
         co_return;
     }
     asio::awaitable<void> do_read_loop()
@@ -142,10 +183,9 @@ private:
                 const size_t old = inbuf.size();
                 inbuf.resize(old + readChunk);
 
-                std::size_t n = co_await socket_.async_read_some(
-                    asio::buffer(inbuf.data() + old, readChunk),
-                    asio::bind_cancellation_slot(slot_, asio::use_awaitable)
-                );
+                std::size_t n = co_await async_read_any(socket_,
+                                                        asio::buffer(inbuf.data() + old, readChunk),
+                                                        slot_);
                 inbuf.resize(old + n);
 
                 if (n == 0)
@@ -164,10 +204,9 @@ private:
                 const size_t old = inbuf.size();
                 inbuf.resize(old + readChunk);
 
-                std::size_t n = co_await socket_.async_read_some(
-                    asio::buffer(inbuf.data() + old, readChunk),
-                    asio::bind_cancellation_slot(slot_, asio::use_awaitable)
-                );
+                std::size_t n = co_await async_read_any(socket_,
+                                                        asio::buffer(inbuf.data() + old, readChunk),
+                                                        slot_);
 
                 inbuf.resize(old + n);
 

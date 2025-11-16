@@ -56,7 +56,7 @@ asio::awaitable<void> Server::do_accept() {
 
 
 template<typename Socket>
-asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation_slot token) {
+asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation_slot token, size_t client_id) {
     Request req = co_await do_read(socket, token);
     std::cout << req.to_string() << "\n";
 
@@ -76,31 +76,28 @@ asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation
                                        asio::bind_cancellation_slot(token, asio::use_awaitable));
             co_return;
         }
-        co_await process_session_ws(socket, key, handlers, token);
+        co_await process_session_ws(socket, key, handlers, token, client_id);
         co_return;
     }
     Response resp = co_await handle_request(req);
     co_await do_write(socket, resp, token);
 }
 
-
-// TODO FIX THIS!
-// template<typename Socket>
-// asio::awaitable<void> Server::process_session_ws(Socket &socket,
-//                                          const std::string &sec_ws_key,
-//                                          const WsHandlers *handlers,
-//                                          asio::cancellation_slot token)
-// {
-//     std::string accept = ws_accept_key(sec_ws_key);
-//     Response resp = build_101_response(accept);
-//     co_await asio::async_write(socket, asio::buffer(resp.to_string()),
-//                                asio::bind_cancellation_slot(token, asio::use_awaitable));
-//     if (handlers->on_open) handlers->on_open();
-
-//     co_await do_read_loop(socket, handlers, token);
-
-//     co_return;
-// }
+template <typename Socket>
+asio::awaitable<void> Server::process_session_ws(Socket &socket,
+                                         const std::string &sec_ws_key,
+                                         const WsHandlers *handlers,
+                                         asio::cancellation_slot token,
+                                         size_t client_id)
+{
+    std::string accept = ws_accept_key(sec_ws_key);
+    Response resp = build_101_response(accept);
+    // TODO error handling here
+    auto ws_ptr = std::make_shared<WebSocket>(
+        std::move(socket), handlers, token, client_id);
+    register_websocket(client_id, ws_ptr);
+    co_await ws_ptr->start(sec_ws_key);
+}
 
 
 
@@ -138,13 +135,13 @@ asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id
 		co_await ssl_stream.async_handshake(asio::ssl::stream_base::server,
                                             asio::bind_cancellation_slot(token, asio::use_awaitable));
 		std::cout << "Client " << client_id << " use SSL\n";
-		co_await process_session(ssl_stream, token);
+		co_await process_session(ssl_stream, token, client_id);
 	#else
 		std::cerr << "SSL requested but OpenSSL disabled — using plain TCP.\n";
-		co_await process_session(socket, token);
+		co_await process_session(socket, token, client_id);
 	#endif
 	} else {
-		co_await process_session(socket, token);
+		co_await process_session(socket, token, client_id);
 	}
     co_return;
 }
