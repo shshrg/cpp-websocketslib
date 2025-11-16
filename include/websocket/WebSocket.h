@@ -36,10 +36,15 @@ public:
         if (handlers) handlers_ = *handlers;
     }
 
+    // pass lambda which will be executed when closing
+    void set_server_cleanup(std::function<void(size_t)> fn)
+    {
+        server_cleanup_ = std::move(fn);
+    }
+
     
     asio::awaitable<void> start(const std::string &sec_ws_key)
     {
-        std::cout << "Hello from websocket.h\n";
         std::string accept = ws_accept_key(sec_ws_key);
         Response resp = build_101_response(accept);
 
@@ -52,8 +57,19 @@ public:
         state_.store(WS_OPEN, std::memory_order_release);
         co_return;
     }
+    // todo
     asio::awaitable<void> send(std::vector<uint8_t> bytes);
-    asio::awaitable<void> close(uint16_t code, const std::string_view &reason);
+    void close(uint16_t code, const std::string_view &reason)
+    {
+        if (state_ == WS_CLOSED) return;
+        state_.store(WS_CLOSED, std::memory_order_release);
+
+        if (handlers_.on_close)
+            handlers_.on_close(code, reason);
+        
+        if (server_cleanup_)
+            server_cleanup_(client_id_);
+    }
 private:
     AnySocket socket_;
     size_t client_id_;
@@ -62,16 +78,10 @@ private:
     asio::cancellation_slot slot_;
     asio::cancellation_signal signal_;
 
-    // TODO: support for partial reads/writes inside websocket itself
-    std::vector<uint8_t> read_buffer_;
-    std::vector<uint8_t> write_buffer_;
-    // size_t read_pos;
+    std::function<void(size_t)> server_cleanup_;
 
     std::atomic<uint8_t> state_{WS_CLOSED};
     
-    
-    std::string path;
-    std::string client_id;
 
     // ---------helper functions to handle different socket types----------
     template<typename SocketType, typename Buffer>

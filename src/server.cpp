@@ -92,11 +92,18 @@ asio::awaitable<void> Server::process_session_ws(Socket &socket,
 {
     std::string accept = ws_accept_key(sec_ws_key);
     Response resp = build_101_response(accept);
-    // TODO error handling here
-    auto ws_ptr = std::make_shared<WebSocket>(
+
+    auto ws = std::make_shared<WebSocket>(
         std::move(socket), handlers, token, client_id);
-    register_websocket(client_id, ws_ptr);
-    co_await ws_ptr->start(sec_ws_key);
+
+    ws->set_server_cleanup(
+        [this](size_t id) {
+            remove_websocket(id);
+        }
+    );
+    
+    register_websocket(client_id, ws);
+    co_await ws->start(sec_ws_key);
 }
 
 

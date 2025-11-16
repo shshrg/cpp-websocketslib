@@ -12,7 +12,6 @@ using WsOpenHandler = std::function<void()>;
 using WsMessageHandler = std::function<void(std::string_view msg)>;
 using WsCloseHandler = std::function<void(uint16_t code, std::string_view reason)>;
 
-// TODO: wrapper for on_close
 struct WsHandlers {
     WsOpenHandler on_open{};
     WsMessageHandler on_message{};
