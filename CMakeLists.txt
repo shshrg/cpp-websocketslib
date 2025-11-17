@@ -48,6 +48,7 @@ add_library(my_http_lib
         src/http/request.cpp
         src/http/response.cpp
         include/websocket/WsFrame.h
+        src/config.cpp
 )
 
 target_include_directories(my_http_lib
@@ -94,4 +95,12 @@ add_executable(client src/client.cpp src/http/request.cpp)
 target_link_libraries(client PRIVATE my_http_lib)
 set_target_properties(client PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
+)
+
+# HTTP example
+add_executable(example_http examples/servers/http_basic.cpp)
+target_link_libraries(example_http PRIVATE my_http_lib)
+
+target_compile_definitions(example_http PRIVATE
+        DEFAULT_CONFIG_PATH="${CMAKE_SOURCE_DIR}/examples/configs/http_basic.conf"
 )

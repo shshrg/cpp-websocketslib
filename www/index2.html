@@ -93,7 +93,6 @@
             return;
         }
 
-        // 🔴 This is the important part: we download *the file URL*, NOT /api/files
         const a = document.createElement('a');
         a.href = selected;   // e.g. "/docs/file.txt"
         a.download = '';     // hint browser to download
