@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
         asio::io_context io;
 
         auto address = asio::ip::make_address(cfg.address);
-        bool use_ssl  = cfg.use_ssl || cfg.ssl_enabled;
+        bool use_ssl  = cfg.use_ssl;
 
         if (use_ssl) {
             std::cerr << "Warning: this is HTTP example, but config enabled SSL.\n";

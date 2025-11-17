@@ -123,13 +123,7 @@ ServerConfig load_config(const std::string& filename) {
         }
         // ---- Handle [ssl] ----
         else if (section == "ssl") {
-            if (key == "enabled") {
-                bool b;
-                if (!parse_bool(value, b)) {
-                    throw std::runtime_error("Invalid bool for ssl.enabled at line " + std::to_string(line_no));
-                }
-                cfg.ssl_enabled = b;
-            } else if (key == "cert_file") {
+            if (key == "cert_file") {
                 cfg.ssl_cert_file = value;
             } else if (key == "key_file") {
                 cfg.ssl_key_file = value;

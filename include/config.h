@@ -19,7 +19,6 @@ struct ServerConfig {
     bool use_ssl = false;
     fs::path www_root = "./www";
 
-    bool ssl_enabled = false;
     fs::path ssl_cert_file = "certs/localhost.crt";
     fs::path ssl_key_file  = "certs/localhost.key";
 
