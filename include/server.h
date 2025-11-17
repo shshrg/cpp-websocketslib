@@ -49,9 +49,9 @@ public:
     : io_context_(io_context),
     acceptor_(io_context_, tcp::endpoint(address, port))
     #ifdef USE_SSL
-    , use_ssl_(use_ssl), ssl_context_(asio::ssl::context::tls_server)
+        , use_ssl_(use_ssl), ssl_context_(asio::ssl::context::tls_server)
     #else
-        use_ssl_(false)
+        , use_ssl_(false)
     #endif
     {
     #ifdef USE_SSL
