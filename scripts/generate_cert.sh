@@ -11,20 +11,14 @@ KEY_BITS=2048
 
 mkdir -p "$CERT_DIR"
 
-# Detect Windows (Git Bash, MSYS, MINGW)
 UNAME=$(uname)
 IS_WINDOWS=false
 if [[ "$UNAME" == MINGW* || "$UNAME" == MSYS* || "$UNAME" == CYGWIN* ]]; then
     IS_WINDOWS=true
 fi
 
-# Only chmod on non-Windows
-if [[ "$IS_WINDOWS" == false ]]; then
-    chmod 700 "$CERT_DIR"
-fi
-
-# ===== Prepare temporary OpenSSL config for SAN =====
-TEMP_CNF=$(mktemp)
+# Create portable temp config
+TEMP_CNF="$CERT_DIR/tmp_openssl.cnf"
 cat > "$TEMP_CNF" <<EOF
 [req]
 distinguished_name = req_distinguished_name
@@ -43,36 +37,28 @@ DNS.1 = localhost
 IP.1 = 127.0.0.1
 EOF
 
-# ===== Generate Root CA =====
+# Convert to Windows format for OpenSSL
+if [[ "$IS_WINDOWS" == true ]]; then
+    unix2dos "$TEMP_CNF" 2>/dev/null || true
+fi
+
 echo "=== Generating Root CA ==="
-if [[ ! -f "$ROOT_CA_KEY" || ! -f "$ROOT_CA_CERT" ]]; then
+if [[ ! -f "$ROOT_CA_KEY" ]]; then
     openssl genrsa -out "$ROOT_CA_KEY" $KEY_BITS
     openssl req -x509 -new -nodes -key "$ROOT_CA_KEY" -sha256 -days 1825 \
         -out "$ROOT_CA_CERT" -subj "/CN=Local Dev Root CA"
-    echo "Root CA created: $ROOT_CA_CERT"
-else
-    echo "Root CA already exists, skipping."
 fi
 
-# ===== Generate localhost key and CSR =====
 echo "=== Generating localhost key and CSR ==="
 openssl genrsa -out "$LOCAL_KEY" $KEY_BITS
 openssl req -new -key "$LOCAL_KEY" -out "$CERT_DIR/localhost.csr" -config "$TEMP_CNF"
 
-# ===== Sign localhost certificate with Root CA =====
-echo "=== Signing localhost certificate with Root CA ==="
-openssl x509 -req -in "$CERT_DIR/localhost.csr" -CA "$ROOT_CA_CERT" -CAkey "$ROOT_CA_KEY" \
-    -CAcreateserial -out "$LOCAL_CERT" -days $DAYS_VALID -sha256 -extensions v3_req -extfile "$TEMP_CNF"
+echo "=== Signing localhost certificate ==="
+openssl x509 -req -in "$CERT_DIR/localhost.csr" \
+    -CA "$ROOT_CA_CERT" -CAkey "$ROOT_CA_KEY" -CAcreateserial \
+    -out "$LOCAL_CERT" -days $DAYS_VALID -sha256 \
+    -extensions v3_req -extfile "$TEMP_CNF"
 
-# ===== Set file permissions on non-Windows =====
-if [[ "$IS_WINDOWS" == false ]]; then
-    chmod 600 "$LOCAL_KEY"
-fi
-
-# Cleanup temporary files
-rm -f "$TEMP_CNF" "$CERT_DIR/localhost.csr" "$CERT_DIR/rootCA.srl"
+rm -f "$CERT_DIR/localhost.csr" "$CERT_DIR/rootCA.srl" "$TEMP_CNF"
 
 echo "=== Done ==="
-echo "Root CA: $ROOT_CA_CERT (import this into your OS/browser)"
-echo "Local server cert: $LOCAL_CERT"
-echo "Local server key: $LOCAL_KEY"
