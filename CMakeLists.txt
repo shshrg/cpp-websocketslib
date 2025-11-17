@@ -103,3 +103,10 @@ target_link_libraries(example_http PRIVATE my_http_lib)
 target_compile_definitions(example_http PRIVATE
         DEFAULT_CONFIG_PATH="${CMAKE_SOURCE_DIR}/examples/configs/http_basic.conf"
 )
+
+add_executable(example_ws examples/servers/ws_basic.cpp)
+target_link_libraries(example_ws PRIVATE my_http_lib)
+
+target_compile_definitions(example_http PRIVATE
+        DEFAULT_CONFIG_WS_PATH="${CMAKE_SOURCE_DIR}/examples/configs/ws_basic.conf"
+)

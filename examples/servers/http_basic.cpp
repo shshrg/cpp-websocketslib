@@ -55,9 +55,50 @@ int main(int argc, char* argv[]) {
             server.MountStatic(m.url_prefix, m.root);
         }
 
-        server.Get("/api/hello", [](const Request& req) {
+        server.Get("/hello", [](const Request& req) {
             (void)req;
             return Response::text("Hello from http_basic example\n");
+        });
+
+        server.Get("/api/files", [](const Request &req) {
+            namespace fs = std::filesystem;
+
+            fs::path root = "./www";
+
+            std::vector<std::string> urls;
+            std::error_code ec;
+
+            if (!fs::exists(root, ec) || ec) {
+                return Response::not_found("www root not found");
+            }
+
+            for (auto const &entry: fs::recursive_directory_iterator(root)) {
+                if (!entry.is_regular_file()) continue;
+
+                fs::path rel = fs::relative(entry.path(), root, ec);
+                if (ec) continue;
+
+                std::string web_path = "/" + rel.generic_string();
+                urls.push_back(std::move(web_path));
+            }
+
+            std::ostringstream oss;
+            oss << "[\n";
+            for (size_t i = 0; i < urls.size(); ++i) {
+                oss << "  \"";
+                for (char c: urls[i]) {
+                    if (c == '\"') oss << "\\\"";
+                    else oss << c;
+                }
+                oss << "\"";
+                if (i + 1 < urls.size()) oss << ",";
+                oss << "\n";
+            }
+            oss << "]\n";
+
+            Response res = Response::text(oss.str());
+            res.set_header("content-type", "application/json");
+            return res;
         });
 
         std::size_t threads = cfg.threads;
@@ -66,7 +107,8 @@ int main(int argc, char* argv[]) {
         }
 
         server.start(threads);
-        std::cout << "HTTP example listening on http://" << cfg.address << ":" << cfg.port
+        std::string http_type = (cfg.use_ssl) ? "https" : "http";
+        std::cout << "HTTP example listening on " << http_type << "://" << cfg.address << ":" << cfg.port
                   << " (" << threads << " threads)\n";
         std::cout << "Press ENTER to stop...\n";
 

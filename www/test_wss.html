@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>WebSocket Echo Size Test</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 700px;
+      margin: 2rem auto;
+      background: #f5f5f5;
+      padding: 1.5rem;
+      border-radius: 12px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    input, button, select, textarea {
+      font-size: 1rem;
+      margin: 0.3rem;
+    }
+    #msg {
+      width: 100%;
+    }
+    pre {
+      background: #222;
+      color: #0f0;
+      padding: 1rem;
+      border-radius: 8px;
+      height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .info { color: #0ff; }
+    .sent { color: #ff0; }
+    .recv { color: #0f0; }
+    .error { color: #f55; }
+  </style>
+</head>
+<body>
+<h1>WebSocket Echo Size Test</h1>
+<p>
+  Розмір повідомлення:
+  <input id="size" type="number" min="1" max="1000000" step="100" value="1000"> байт
+  <button id="gen">Згенерувати</button>
+</p>
+<textarea id="msg" rows="5" placeholder="Тут з’явиться згенероване повідомлення"></textarea><br>
+<button id="send">Надіслати</button>
+<button id="close">Закрити підключення</button>
+<pre id="log"></pre>
+
+<script>
+  const log = document.getElementById('log');
+  const ws = new WebSocket('wss://localhost:8443/chat');
+
+  const append = (msg, cls='info') => {
+    const time = new Date().toLocaleTimeString();
+    log.innerHTML += `<span class="${cls}">[${time}] ${msg}</span>\n`;
+    log.scrollTop = log.scrollHeight;
+  };
+
+  ws.onopen = () => append('👉 Підключено');
+  ws.onclose = (e) => append(`🔌 Відключено (код ${e.code}, причина: ${e.reason || '—'})`);
+  ws.onerror = e => append('❌ Помилка: ' + e.message, 'error');
+  ws.onmessage = e => append(`📥 Echo (${e.data.length} байт)`, 'recv');
+
+  document.getElementById('gen').onclick = () => {
+    const len = +document.getElementById('size').value;
+    const txt = 'x'.repeat(len);
+    document.getElementById('msg').value = txt;
+    append(`🧩 Згенеровано повідомлення довжиною ${len} байт`, 'info');
+  };
+
+  document.getElementById('send').onclick = () => {
+    if (ws.readyState !== WebSocket.OPEN) return append('⚠️ З’єднання не відкрите', 'error');
+    const txt = document.getElementById('msg').value;
+    if (!txt.length) return append('⚠️ Порожнє повідомлення', 'error');
+    ws.send(txt);
+    append(`📤 Надіслано (${txt.length} байт)`, 'sent');
+  };
+
+  document.getElementById('close').onclick = () => {
+    if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED)
+      return append('ℹ️ З’єднання вже закривається або закрите', 'info');
+    append('🔚 Відправляємо запит на закриття з кодом 1000 (Normal Closure)...', 'info');
+    ws.close(1000, 'Client requested closure');
+  };
+</script>
+</body>
+</html>

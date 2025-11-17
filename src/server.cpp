@@ -110,12 +110,11 @@ asio::awaitable<void> Server::process_session_ws(Socket &socket,
 
 asio::awaitable<Response> Server::handle_request(const Request &req) {
     auto method_it = routes_.find(req.method);
-    if (method_it == routes_.end()) co_return Response::not_found();
-
-    auto &table = method_it->second;
-
-    if (auto it = table.find(req.path); it != table.end()) {
-        co_return co_await it->second(req);
+    if (method_it != routes_.end()) {
+        auto &table = method_it->second;
+        if (auto it = table.find(req.path); it != table.end()) {
+            co_return co_await it->second(req);
+        }
     }
 
     if (!static_mounts_.empty()) {
