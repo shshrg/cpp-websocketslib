@@ -1,32 +1,58 @@
-# Web Server with WebSockets Library
+# C++ WebSockets Library
 
 ## Overview
-This project implements a high-performance asynchronous HTTP/1.1 web server with WebSocket support using Asio coroutines
+This project is an asynchronous high-performance library that supports HTTP(S) and Websocket protocols.
 
 
 ## Features
 - Asynchronous I/O based on `asio::awaitable`
-- HTTP request parsing (headers, body, query params)
+- HTTP request and WS Frame handling (headers, body)
 - Per-connection and global cancellation
 - Graceful shutdown
+- Serve Static
+- TLS Support
 
-## Architecture
-- `Server::do_accept()` runs continuously, accepting connections until cancelled.
-- Each client connection spawns a `Session`, which reads headers and body; builds a response; sends it back
-- Every async operation is cancellable using `asio::cancellation_slot`
 
 ## Build & Run
+
+
+Generate necessary certificates (if OPENSSL)
 ```shell
-./compile.sh
+./scripts/generate_cert.sh
 ```
 
-```
-./bin/server_app [port] [threads]
+With OPENSSL
+```shell
+./compile.sh -o
 ```
 
+With OPENSSL
+```shell
+./compile.sh -o --no-openssl
 ```
-./bin/client [port]
+
+
+Run a basic http server
+```shell
+./bin/example_http
 ```
-Here:
-- `[port]` - port number
-- `[threads]` - number of threads
+
+Run a basic https server
+```shell
+./bin/example_http --config examples/configs/https_basic.conf
+```
+
+Run a basic ws server
+```shell
+./bin/example_ws
+```
+
+Run a basic wss server
+```shell
+./bin/example_ws --config examples/configs/wss_basic.conf
+```
+
+Config File Structure:
+- [server] - define base address, port, number of threads, ssl usage and default root for static content
+- [ssl] - path to certificates
+- [static] - set up mounting paths
