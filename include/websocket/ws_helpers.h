@@ -11,6 +11,16 @@ struct FrameBody {
     uint8_t opcode = 0;
     std::string msg;
 
+    size_t max_size = 0;
+
+    FrameBody(size_t max_sz) noexcept
+        : max_size(max_sz) {
+    }
+
+    void set_max_size(size_t max_sz) noexcept {
+        max_size = max_sz;
+    }
+
     void reset() noexcept {
         assembling = false;
         opcode = 0;
@@ -25,28 +35,20 @@ struct FrameBody {
             msg.reserve(reserve_hint);
     }
 
+    [[nodiscard]] bool would_exceed(size_t extra) const noexcept {
+        return max_size != 0 && msg.size() + extra > max_size;
+    }
+
     bool append(const std::string &bytes) {
+        if (would_exceed(bytes.size()))
+            return false;
         msg.append(bytes.data(), bytes.size());
         return true;
     }
 
-    bool append_masked(const uint8_t *data, size_t len, uint32_t mask_key) {
-        const size_t old_size = msg.size();
-        msg.resize(old_size + len);
-        for (size_t i = 0; i < len; ++i) {
-            auto m = static_cast<uint8_t>(
-                (mask_key >> ((3 - (i & 3)) * 8)) & 0xFF
-            );
-            msg[old_size + i] = static_cast<char>(data[i] ^ m);
-        }
-        return true;
-    }
-
-
     [[nodiscard]] size_t size() const noexcept { return msg.size(); }
     [[nodiscard]] bool empty() const noexcept { return msg.empty(); }
 };
-
 
 
 enum : uint8_t {

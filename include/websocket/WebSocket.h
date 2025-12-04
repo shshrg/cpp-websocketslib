@@ -30,14 +30,13 @@ enum: uint8_t {
 };
 
 
-
 using TcpSocket = asio::basic_stream_socket<asio::ip::tcp>;
 #ifdef USE_SSL
 #include <asio/ssl.hpp>
-    using SslSocket = asio::ssl::stream<asio::basic_stream_socket<asio::ip::tcp> >;
-    using AnySocket = std::variant<TcpSocket, SslSocket>;
+using SslSocket = asio::ssl::stream<asio::basic_stream_socket<asio::ip::tcp> >;
+using AnySocket = std::variant<TcpSocket, SslSocket>;
 #else
-    using AnySocket = std::variant<TcpSocket>;
+using AnySocket = std::variant<TcpSocket>;
 #endif
 
 
@@ -46,8 +45,8 @@ public:
     template<typename Socket>
     WebSocket(Socket &&socket, const WsHandlers *handlers, asio::cancellation_slot token, size_t client_id)
         : socket_(AnySocket(std::forward<Socket>(socket))),
-          slot_(token),
-          client_id_(client_id) {
+          client_id_(client_id),
+          slot_(token) {
         if (handlers) handlers_ = *handlers;
         if (slot_.is_connected()) {
             slot_.assign(
@@ -147,7 +146,6 @@ public:
         );
     }
 
-
 private:
     AnySocket socket_;
     size_t client_id_;
@@ -176,11 +174,16 @@ private:
         );
     }
 
-    template<typename SocketType, typename Buffer>
-    asio::awaitable<std::size_t> async_read_any(SocketType &st, Buffer buf, asio::cancellation_slot slot) {
+    template<typename VariantSocket, typename MutableBuffer>
+    asio::awaitable<std::size_t> async_read_any(
+        VariantSocket &st,
+        const MutableBuffer &buf,
+        asio::cancellation_slot slot
+    ) {
         co_return co_await std::visit(
             [&](auto &sock) -> asio::awaitable<std::size_t> {
-                co_return co_await sock.async_read_some(
+                co_return co_await asio::async_read(
+                    sock,
                     buf,
                     asio::bind_cancellation_slot(slot, asio::use_awaitable)
                 );
@@ -220,114 +223,115 @@ private:
     }
 
     asio::awaitable<void> do_read_loop() {
-        constexpr size_t readChunk = 8 * 1024;
-        size_t read_pos = 0;
+        constexpr size_t maxMsgSize = 1024 * 1024;
 
-        std::vector<uint8_t> inbuf;
-        inbuf.reserve(readChunk);
+        std::array<uint8_t, 14> header{};
 
-        FrameBody fb{};
-
-        auto compact_if = [&] {
-            if (read_pos > inbuf.size() / 2 || read_pos > 64 * 1024) {
-                const size_t remaining = inbuf.size() - read_pos;
-                if (remaining)
-                    std::memmove(inbuf.data(), inbuf.data() + read_pos, remaining);
-                inbuf.resize(remaining);
-                read_pos = 0;
-            }
-        };
-        auto ensure_free = [&](size_t min_free) {
-            if (inbuf.capacity() - inbuf.size() < min_free) {
-                compact_if();
-            }
-            if (inbuf.capacity() - inbuf.size() < min_free) {
-                size_t want = inbuf.size() + std::max(min_free, inbuf.size());
-                inbuf.reserve(want);
-            }
-        };
+        FrameBody fb{maxMsgSize};
 
         while (true) {
             WsFrame f{};
-            size_t header_bytes = 0;
+            co_await async_read_any(socket_,
+                                    asio::buffer(header.data(), 2),
+                                    slot_);
+            const uint8_t b0 = header[0];
+            const uint8_t b1 = header[1];
 
-            for (;;) {
-                const size_t available = inbuf.size() - read_pos;
+            f.fin = (b0 & 0x80) != 0;
+            f.opcode = (b0 & 0x0F);
+            const bool mask = (b1 & 0x80) != 0;
+            f.mask = mask;
 
-                if (available >= 2) {
-                    auto res = ws_try_parse_header(inbuf, read_pos, f, header_bytes);
-                    if (res == HeaderParseResult::Ok) {
-                        break;
-                    }
-                }
-                ensure_free(readChunk);
+            uint64_t len7 = (b1 & 0x7F);
+            std::size_t header_bytes = 2;
 
-                const size_t old = inbuf.size();
-                inbuf.resize(old + readChunk);
+            std::size_t ext_len_bytes = 0;
+            if (len7 == 126) ext_len_bytes = 2;
+            else if (len7 == 127) ext_len_bytes = 8;
 
-                std::size_t n = co_await async_read_any(socket_,
-                                                        asio::buffer(inbuf.data() + old, readChunk),
-                                                        slot_);
-                inbuf.resize(old + n);
+            const std::size_t mask_bytes = mask ? 4 : 0;
 
-                if (n == 0) {
-                    close(1000, "eof");
-                    co_return;
-                }
+            const std::size_t total_header_bytes =
+                    header_bytes + ext_len_bytes + mask_bytes;
+
+            // Additional info, like mask or extended length
+            if (total_header_bytes > header_bytes) {
+                co_await async_read_any(
+                    socket_,
+                    asio::buffer(header.data() + header_bytes,
+                                 total_header_bytes - header_bytes),
+                    slot_
+                );
             }
-            const size_t frame_total = header_bytes + f.payload_length;
 
-            for (;;) {
-                const size_t available = inbuf.size() - read_pos;
-                if (available >= frame_total) {
-                    break;
+
+            // Read extended length after the first two bytes
+            const uint8_t *p = header.data() + 2;
+            uint64_t payload_len = 0;
+
+            if (ext_len_bytes == 0) {
+                payload_len = len7;
+            } else if (ext_len_bytes == 2) {
+                payload_len = (static_cast<uint64_t>(p[0]) << 8) |
+                              (static_cast<uint64_t>(p[1]));
+                p += 2;
+            } else {
+                payload_len = 0;
+                for (int i = 0; i < 8; ++i) {
+                    payload_len = (payload_len << 8) | p[i];
                 }
-
-                ensure_free(readChunk);
-
-                const size_t old = inbuf.size();
-                inbuf.resize(old + readChunk);
-
-                std::size_t n = co_await async_read_any(socket_,
-                                                        asio::buffer(inbuf.data() + old, readChunk),
-                                                        slot_);
-
-                inbuf.resize(old + n);
-
-                if (n == 0)
-                    co_return;
+                p += 8;
             }
-            const uint8_t *frame_ptr = inbuf.data() + read_pos;
-            const uint8_t *payload_ptr = frame_ptr + header_bytes;
-            const size_t payload_len = f.payload_length;
+
+            f.payload_length = payload_len;
+
+            uint32_t mask_key = 0;
+            if (mask) {
+                mask_key = (static_cast<uint32_t>(p[0]) << 24) |
+                           (static_cast<uint32_t>(p[1]) << 16) |
+                           (static_cast<uint32_t>(p[2]) << 8) |
+                           static_cast<uint32_t>(p[3]);
+                f.masking_key = mask_key;
+            }
+
+            f.payload_data.clear();
+            f.payload_data.resize(payload_len);
 
             if (payload_len > 0) {
-                f.payload_data.resize(payload_len);
-                if (f.mask) {
-                    uint32_t key = f.masking_key;
-                    for (size_t i = 0; i < payload_len; ++i) {
-                        auto m = static_cast<uint8_t>(
-                            (key >> ((3 - (i & 3)) * 8)) & 0xFF
-                        );
-                        f.payload_data[i] = static_cast<char>(payload_ptr[i] ^ m);
-                    }
-                } else {
-                    std::memcpy(f.payload_data.data(),
-                                payload_ptr,
-                                payload_len);
-                }
-            } else {
-                f.payload_data.clear();
+                co_await async_read_any(
+                    socket_,
+                    asio::buffer(f.payload_data.data(),
+                                 f.payload_data.size()),
+                    slot_
+                );
             }
-            co_await handle_parsed_frame(f, fb);
 
-            read_pos += frame_total;
-            compact_if();
+            if (mask && payload_len > 0) {
+                uint32_t key = mask_key;
+                auto *buf = reinterpret_cast<uint8_t *>(f.payload_data.data());
+
+                for (std::size_t i = 0; i < f.payload_data.size(); ++i) {
+                    auto m = static_cast<uint8_t>(
+                        (key >> ((3 - (i & 3)) * 8)) & 0xFF
+                    );
+                    buf[i] = static_cast<uint8_t>(buf[i] ^ m);
+                }
+            }
+
+            co_await handle_parsed_frame(f, fb);
         }
     }
 
-    asio::awaitable<void> handle_parsed_frame(WsFrame &f, FrameBody &fb) {
+    asio::awaitable<void> handle_parsed_frame(const WsFrame &f, FrameBody &fb) {
         const uint8_t opcode = f.opcode;
+
+        auto too_big = [this](FrameBody &fb) -> asio::awaitable<void> {
+            co_await send_close_with_reason(1009, "Message too big");
+            if (handlers_.on_close)
+                handlers_.on_close(shared_from_this(), 1009, "Message too big");
+            fb.reset();
+            co_return;
+        };
 
         if (opcode == WS_PING) {
             if (!f.fin) {
@@ -362,7 +366,11 @@ private:
                 co_return;
             }
             fb.start(opcode, f.payload_length);
-            fb.append(f.payload_data);
+
+            if (!fb.append(f.payload_data)) {
+                co_await too_big(fb);
+                co_return;
+            }
 
             if (f.fin) {
                 if (fb.opcode == WS_TEXT) {
@@ -374,11 +382,16 @@ private:
         }
         if (opcode == WS_CONT) {
             if (!fb.assembling) {
-                co_await send_close_with_reason(1002, "Continuattion without initial frame");
-                if (handlers_.on_close) handlers_.on_close(shared_from_this(), 1002, "Continuation without inital frame");
+                co_await send_close_with_reason(1002, "Continuation without initial frame");
+                if (handlers_.on_close)
+                    handlers_.on_close(shared_from_this(), 1002,
+                                       "Continuation without initial frame");
             }
 
-            fb.append(f.payload_data);
+            if (!fb.append(f.payload_data)) {
+                co_await too_big(fb);
+                co_return;
+            }
 
             if (f.fin) {
                 if (fb.opcode == WS_TEXT) {

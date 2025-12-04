@@ -56,6 +56,7 @@ int main(int argc, char *argv[]) {
                 })
                 .on_message([](const auto &ws, std::string_view msg) {
                     std::cout << "WebSocket message received\n";
+                    ws->send_text_async(std::string(msg));
                 })
                 .on_close([](const auto &ws, uint16_t code, std::string_view reason) {
                     std::cout << "WebSocket closed with " << code
