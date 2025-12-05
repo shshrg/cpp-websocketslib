@@ -1,7 +1,6 @@
 #ifndef WEBSOCKET_CLIENT_SYNC
 #define WEBSOCKET_CLIENT_SYNC
 
-#include "asio/io_context.hpp"
 #include <asio.hpp>
 #include <memory>
 #include <openssl/evp.h>
@@ -22,17 +21,17 @@
 
 class WebSocketClient{
 public:
-    explicit WebSocketClient(asio::io_context &context)
+    WebSocketClient(asio::io_context &context)
         : io(context), socket(context)
         {}
     
-    asio::awaitable<void> connect(const std::string& host,
+    void connect(const std::string& host,
                                   const std::string& port,
                                   const std::string& path = "/ws") {
         asio::ip::tcp::resolver resolver(io);
-        auto res = co_await resolver.async_resolve(host, port, asio::use_awaitable);
+        auto endpoints = resolver.resolve(host, port);
 
-        co_await asio::async_connect(socket, res, asio::use_awaitable);
+        asio::connect(socket, endpoints);
         key = generate_key();
 
         std::string req = 
@@ -43,24 +42,24 @@ public:
             "Sec-WebSocket-Key: " + key + "\r\n"
             "sec-WebSocket-Version: 13\r\n\r\n";
         
-        co_await async_write(socket, asio::buffer(req), asio::use_awaitable);
+        asio::write(socket, asio::buffer(req));
         
-        std::string response = co_await read_http_headers();
+        std::string response = read_http_headers();
         if (response.find("101") == std::string::npos)
             throw std::runtime_error("Handshake failed:\n" + response);
 
         std::cout << "[CLIENT] Handshake successful";
     }
 
-    asio::awaitable<void> send_text(const std::string& msg) {
+    void send_text(const std::string& msg) {
         std::vector<uint8_t> frame;
         make_frame_text(msg, frame);
-        co_await asio::async_write(socket, asio::buffer(frame), asio::use_awaitable);
+        asio::write(socket, asio::buffer(frame));
     }
 
-    asio::awaitable<void> receive_loop() {
+    void receive_loop() {
         for (;;) {
-            auto msg = co_await read_frame_text();
+            auto msg = read_frame_text();
             std::cout << "[CLIENT] Received: " << msg << "\n";
         }
     }
@@ -97,20 +96,20 @@ private:
     }
 
 
-    asio::awaitable<std::string> read_http_headers() {
+    std::string read_http_headers() {
         asio::streambuf buf;
         std::string out;
         std::string line;
 
         while (true) {
-            co_await asio::async_read_until(socket, buf, "\r\n", asio::use_awaitable);
+            asio::read_until(socket, buf, "\r\n");
             std::istream is(&buf);
             std::getline(is, line);
 
             if (line == "\r" || line.empty()) break;
             out += line + "\n";
         }
-        co_return out;
+        return out;
     }
 
     void make_frame_text(const std::string& msg, std::vector<uint8_t>& out) {
@@ -143,9 +142,9 @@ private:
         }
     }
 
-    asio::awaitable<std::string> read_frame_text() {
+    std::string read_frame_text() {
         uint8_t header[2];
-        co_await asio::async_read(socket, asio::buffer(header, 2), asio::use_awaitable);
+        asio::read (socket, asio::buffer(header, 2));
 
         bool fin = header[0] & 0x80;
         uint8_t opcode = header[0] & 0x0F;
@@ -158,11 +157,11 @@ private:
 
         if (len == 126) {
             uint8_t ext[2];
-            co_await asio::async_read(socket, asio::buffer(ext, 2), asio::use_awaitable);
+            asio::read(socket, asio::buffer(ext, 2));
             len = (ext[0] << 8) | ext[1];
         } else if (len == 127) {
             uint8_t ext[8];
-            co_await async_read(socket, asio::buffer(ext, 8), asio::use_awaitable);
+            asio::read(socket, asio::buffer(ext, 8));
             len = 0;
             for (int i = 0; i < 8; i++)
                 len = (len << 8) | ext[i];
@@ -170,16 +169,16 @@ private:
 
         uint8_t mask_key[4]{};
         if (masked)
-            co_await asio::async_read(socket, asio::buffer(mask_key, 4), asio::use_awaitable);
+            asio::read(socket, asio::buffer(mask_key, 4));
 
         std::string msg(len, 0);
-        co_await asio::async_read(socket, asio::buffer(msg.data(), len), asio::use_awaitable);
+        asio::read(socket, asio::buffer(msg.data(), len));
 
         if (masked)
             for (size_t i = 0; i < len; i++)
                 msg[i] ^= mask_key[i%4];
         
-        co_return msg;
+        return msg;
     }
 };
 
