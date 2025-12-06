@@ -1,10 +1,9 @@
 /*
-Example of a WebSocket client connecting to server and sending messages
+Example of a synchronous WebSocket client connecting to server and sending messages
 */
 
-
 #include "config.h"
-#include "client.h"
+#include "ws_client.h"
 #include "server.h"
 
 #ifndef DEFAULT_CONFIG_WS_PATH
@@ -20,7 +19,7 @@ int main(int argc, char* argv[]) {
             config_path = argv[++i];
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Usage: " << argv[0]
-                    << " [--config path/to/config.conf]\n";
+                      << " [--config path/to/config.conf]\n";
             return 0;
         } else {
             std::cerr << "Unknown argument: " << arg << "\n";
@@ -28,20 +27,19 @@ int main(int argc, char* argv[]) {
             return 1;
         }
     }
+
     try {
         std::cout << "Loading config: " << config_path << "\n";
         ServerConfig cfg = load_config(config_path);
 
-        asio::io_context io;
+        std::string host = cfg.address.empty() ? "127.0.0.1" : cfg.address;
+        std::string ws_path = "/chat";
+        int port = cfg.port;
 
-        std::string host = "127.0.0.1";
-        std::string address("/chat");
-        bool use_ssl = cfg.use_ssl;
+        std::cout << "Connecting to ws://" << host << ":" << port << ws_path << "...\n";
 
-        WebSocketClient client(io);
-
-        std::cout << "Connecting to ws://" << host << ":" << cfg.port << address << "...\n";
-        client.connect(host, std::to_string(cfg.port), address);
+        WebSocketClient client;
+        client.connect(host, std::to_string(cfg.port), ws_path);
 
         client.send_text("Hello from client!");
 
@@ -52,7 +50,6 @@ int main(int argc, char* argv[]) {
                 std::cout << "Receive loop stopped: " << e.what() << "\n";
             }
         });
-        
 
         for (;;) {
             std::string line;
@@ -64,6 +61,7 @@ int main(int argc, char* argv[]) {
 
         reader.detach();
         return 0;
+
     } catch (const std::exception& e) {
         std::cerr << "Fatal: " << e.what() << "\n";
         return 1;

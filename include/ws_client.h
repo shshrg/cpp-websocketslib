@@ -18,31 +18,32 @@
 #include "http/request.h"
 
 
-class WebSocketClient{
+class WebSocketClient {
 public:
-    WebSocketClient(asio::io_context &context)
-        : io(context), socket(context)
-        {}
-    
+    WebSocketClient()
+        : socket(internal_io)
+    {}
+
     void connect(const std::string& host,
-                                  const std::string& port,
-                                  const std::string& path = "/ws") {
-        asio::ip::tcp::resolver resolver(io);
+                 const std::string& port,
+                 const std::string& path = "/ws")
+    {
+        asio::ip::tcp::resolver resolver(internal_io);
         auto endpoints = resolver.resolve(host, port);
 
         asio::connect(socket, endpoints);
         key = generate_key();
 
-        std::string req = 
+        std::string req =
             "GET " + path + " HTTP/1.1\r\n"
             "Host: " + host + "\r\n"
             "Upgrade: websocket\r\n"
             "Connection: Upgrade\r\n"
             "Sec-WebSocket-Key: " + key + "\r\n"
             "Sec-WebSocket-Version: 13\r\n\r\n";
-        
+
         asio::write(socket, asio::buffer(req));
-        
+
         std::string response = read_http_headers();
         if (response.find("101") == std::string::npos)
             throw std::runtime_error("Handshake failed:\n" + response);
@@ -62,19 +63,20 @@ public:
             std::cout << "[CLIENT] Received: " << msg << "\n";
         }
     }
+
 private:
-    asio::io_context& io;
+    asio::io_context internal_io;
     asio::ip::tcp::socket socket;
     std::string key;
 
     static std::string base64_encode(const unsigned char* data, size_t len) {
-        static const char table[] = 
+        static const char table[] =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         std::string out;
         out.reserve((len+2)/3*4);
 
         for (size_t i = 0; i < len; ) {
-            uint32_t v = 
+            uint32_t v =
                 (uint32_t(data[i++]) << 16) |
                 (i < len ? uint32_t(data[i++]) << 8 : 0) |
                 (i < len ? uint32_t(data[i++]) : 0);
@@ -93,7 +95,6 @@ private:
             b = static_cast<unsigned char>(rd());
         return base64_encode(r.data(), r.size());
     }
-
 
     std::string read_http_headers() {
         asio::streambuf buf;
@@ -114,11 +115,11 @@ private:
     void make_frame_text(const std::string& msg, std::vector<uint8_t>& out) {
         out.clear();
 
-        uint8_t op = 0x81; // FIN + text
+        uint8_t op = 0x81;
         out.push_back(op);
 
         size_t len = msg.size();
-        uint8_t maskbit = 0x80; // client must mask
+        uint8_t maskbit = 0x80;
 
         if (len < 126) {
             out.push_back(maskbit | static_cast<uint8_t>(len));
@@ -132,17 +133,13 @@ private:
                 out.push_back((len >> (8 * i)) & 0xFF);
         }
 
-        // Generate 4 random mask bytes
         std::array<uint8_t, 4> mask_bytes{};
         std::random_device rd;
-        for (auto& b : mask_bytes) {
+        for (auto& b : mask_bytes)
             b = static_cast<uint8_t>(rd());
-        }
 
-        // Write them into the header
         out.insert(out.end(), mask_bytes.begin(), mask_bytes.end());
 
-        // XOR payload with the SAME bytes in the SAME order
         for (size_t i = 0; i < msg.size(); ++i) {
             auto byte = static_cast<uint8_t>(msg[i]);
             byte ^= mask_bytes[i % 4];
@@ -152,47 +149,43 @@ private:
 
     std::string read_frame_text() {
         uint8_t header[2];
-        asio::read (socket, asio::buffer(header, 2));
+        asio::read(socket, asio::buffer(header, 2));
 
         bool fin = header[0] & 0x80;
         uint8_t opcode = header[0] & 0x0F;
         bool masked = header[1] & 0x80;
         uint64_t len = header[1] & 0x7F;
 
-        
         if (!fin) throw std::runtime_error("Fragmentation not supported");
         if (opcode == 0x8) throw std::runtime_error("Server closed connection");
         if (opcode != 0x01) throw std::runtime_error("Only text supported");
 
-        std::cout << "Length of message received : " << len << "\n";
         if (len == 126) {
             std::array<uint8_t,2> ext{};
             asio::read(socket, asio::buffer(ext, 2));
-            len = (static_cast<uint64_t>(ext[0]) << 8) | static_cast<uint64_t>(ext[1]);
+            len = (uint64_t(ext[0]) << 8) | uint64_t(ext[1]);
         } else if (len == 127) {
             uint8_t ext[8];
             asio::read(socket, asio::buffer(ext, 8));
             len = 0;
             for (int i = 0; i < 8; i++)
-                len = (len << 8) | static_cast<uint64_t>(ext[i]);
+                len = (len << 8) | uint64_t(ext[i]);
         }
 
-        std::array<uint8_t,4> mask_key{0,0,0,0};
+        std::array<uint8_t, 4> mask_key{0,0,0,0};
         if (masked)
             asio::read(socket, asio::buffer(mask_key, 4));
 
         std::string msg(len, 0);
         asio::read(socket, asio::buffer(msg.data(), len));
 
-        if (masked)
+        if (masked) {
             for (size_t i = 0; i < len; i++)
-                msg[i] ^= mask_key[i%4];
-        
+                msg[i] ^= mask_key[i % 4];
+        }
+
         return msg;
     }
 };
-
-
-
 
 #endif

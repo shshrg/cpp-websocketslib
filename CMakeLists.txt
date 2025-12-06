@@ -90,22 +90,29 @@ set_target_properties(server_app PROPERTIES
 )
 
 
-
-# HTTP example
-add_executable(example_http examples/servers/http_basic.cpp)
-target_link_libraries(example_http PRIVATE my_http_lib)
-
-target_compile_definitions(example_http PRIVATE
+# HTTP server example
+add_executable(example_http_server examples/servers/http_basic.cpp)
+target_link_libraries(example_http_server PRIVATE my_http_lib)
+target_compile_definitions(example_http_server PRIVATE
         DEFAULT_CONFIG_PATH="${CMAKE_SOURCE_DIR}/examples/configs/http_basic.conf"
 )
 
-add_executable(example_ws examples/servers/ws_basic.cpp)
-target_link_libraries(example_ws PRIVATE my_http_lib)
+# HTTP client example
+add_executable(example_http_client examples/clients/http_client.cpp)
+target_link_libraries(example_http_client PRIVATE my_http_lib)
+target_compile_definitions(example_http_client PRIVATE
+        DEFAULT_CONFIG_PATH="${CMAKE_SOURCE_DIR}/examples/configs/http_basic.conf"
+)
 
-target_compile_definitions(example_http PRIVATE
+# WS server example
+add_executable(example_ws_server examples/servers/ws_basic.cpp)
+target_link_libraries(example_ws_server PRIVATE my_http_lib)
+
+target_compile_definitions(example_ws_server PRIVATE
         DEFAULT_CONFIG_WS_PATH="${CMAKE_SOURCE_DIR}/examples/configs/ws_basic.conf"
 )
 
+# WS client example
 add_executable(example_ws_client examples/clients/ws_client.cpp)
 target_link_libraries(example_ws_client PRIVATE my_http_lib)
 

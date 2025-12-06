@@ -16,8 +16,8 @@ int main(int argc, char* argv[]) {
     std::string config_path = DEFAULT_CONFIG_PATH;
 
     // Simple CLI:
-    //   ./example_http
-    //   ./example_http --config path/to/file.conf
+    //   ./example_http_server
+    //   ./example_http_server --config path/to/file.conf
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--config" && i + 1 < argc) {
