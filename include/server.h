@@ -190,6 +190,7 @@ private:
     template<typename Socket>
     asio::awaitable<void> process_session_ws(Socket &socket, const std::string &sec_ws_key,
                                              const WsHandlers *handlers, asio::cancellation_slot token, size_t client_id);
+    void close_websockets();
 
     asio::io_context &io_context_;
     asio::ip::tcp::acceptor acceptor_;

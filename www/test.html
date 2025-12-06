@@ -45,9 +45,13 @@
 <textarea id="msg" rows="5" placeholder="Тут з’явиться згенероване повідомлення"></textarea><br>
 <button id="send">Надіслати</button>
 <button id="close">Закрити підключення</button>
+<p>Надіслано повідомлень: <span id="counter">0</span></p>
 <pre id="log"></pre>
 
 <script>
+    let sendCount = 0;
+    const counterEl = document.getElementById('counter');
+
     const log = document.getElementById('log');
     const ws = new WebSocket('ws://localhost:8080/chat');
 
@@ -74,6 +78,8 @@
         const txt = document.getElementById('msg').value;
         if (!txt.length) return append('⚠️ Порожнє повідомлення', 'error');
         ws.send(txt);
+        sendCount++;
+        counterEl.textContent = sendCount;
         append(`📤 Надіслано (${txt.length} байт)`, 'sent');
     };
 

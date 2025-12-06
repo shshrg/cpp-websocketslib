@@ -26,8 +26,9 @@ void Server::stop() {
     // Stop accepting clients
     server_cancel_.emit(asio::cancellation_type::all);
 
-    // Finish read/write client operations
     emit_all();
+
+    close_websockets();
 
     if (work_guard_)
         work_guard_.reset();
@@ -359,11 +360,21 @@ void Server::post_task(std::function<void()> task) {
     asio::post(io_context_, std::move(task));
 }
 
-// void Server::emit_all_text(const std::string &msg) {
-//     std::lock_guard lock(ws_mutex);
-//     for (auto &[id, ws] : websockets_) {
-//         if (ws) {
-//             ws->send_text_async(msg);
-//         }
-//     }
-// }
+
+void Server::close_websockets() {
+    std::vector<std::shared_ptr<WebSocket>> to_close;
+    {
+        std::lock_guard lock(ws_mutex);
+        to_close.reserve(websockets_.size());
+        for (auto &entry : websockets_) {
+            if (entry.second) {
+                to_close.push_back(entry.second);
+            }
+        }
+    }
+    for (auto &ws : to_close) {
+        if (!ws) continue;
+        ws->close(1001, "Server stopped working");
+    }
+}
+

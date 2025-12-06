@@ -50,25 +50,20 @@ int main(int argc, char *argv[]) {
         }
 
         server.WebSocketRouter("/chat")
-                .on_open([&server](const auto &ws) {
+                .on_open([](const auto &ws) {
                     std::cout << "[WS] open\n";
                     ws->send_text_async("Welcome! Type a message and everyone will see it.");
-
-                    // Notify others
-                    // server.emit_all_text("[system] A new user joined the chat.");
                 })
-                .on_message([&server](const auto &ws, std::string_view msg) {
-                    std::cout << "[WS] msg: " << msg << "\n";
+                .on_message([](const auto &ws, std::string_view msg) {
+                    std::cout << "[WS] msg: " << "\n";
                     ws->send_text_async(std::string(msg));
 
                     std::string broadcast = "[user] ";
                     broadcast.append(msg);
 
-                    // server.emit_all_text(broadcast);
                 })
-                .on_close([&server](const auto &ws, uint16_t code, std::string_view reason) {
+                .on_close([](const auto &ws, uint16_t code, std::string_view reason) {
                     std::cout << "[WS] close: " << code << " reason=" << reason << "\n";
-                    // server.emit_all_text("[system] A user left the chat.");
                 });
 
 
