@@ -424,7 +424,7 @@ private:
 
     asio::awaitable<void> handle_text_bytes(const std::string &payload) {
         if (handlers_.on_message) handlers_.on_message(shared_from_this(), std::string(payload));
-        co_await send_text(payload);
+        // co_await send_text(payload);
         co_return;
     }
 

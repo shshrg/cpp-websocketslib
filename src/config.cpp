@@ -7,7 +7,7 @@
 #include <stdexcept>
 
 
-static std::string trim(const std::string& s) {
+static std::string trim(const std::string &s) {
     size_t start = 0;
     while (start < s.size() && std::isspace(static_cast<unsigned char>(s[start]))) ++start;
 
@@ -17,10 +17,10 @@ static std::string trim(const std::string& s) {
     return s.substr(start, end - start);
 }
 
-static bool parse_bool(const std::string& s, bool& out) {
+static bool parse_bool(const std::string &s, bool &out) {
     std::string v;
     v.reserve(s.size());
-    for (char c : s) v.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    for (char c: s) v.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
 
     if (v == "true" || v == "yes" || v == "on" || v == "1") {
         out = true;
@@ -33,7 +33,7 @@ static bool parse_bool(const std::string& s, bool& out) {
     return false;
 }
 
-static bool parse_unsigned_short(const std::string& s, unsigned short& out) {
+static bool parse_unsigned_short(const std::string &s, unsigned short &out) {
     try {
         unsigned long v = std::stoul(s);
         if (v > 65535) return false;
@@ -44,7 +44,7 @@ static bool parse_unsigned_short(const std::string& s, unsigned short& out) {
     }
 }
 
-static bool parse_size_t(const std::string& s, std::size_t& out) {
+static bool parse_size_t(const std::string &s, std::size_t &out) {
     try {
         unsigned long long v = std::stoull(s);
         out = static_cast<std::size_t>(v);
@@ -55,7 +55,7 @@ static bool parse_size_t(const std::string& s, std::size_t& out) {
 }
 
 
-ServerConfig load_config(const std::string& filename) {
+ServerConfig load_config(const std::string &filename) {
     ServerConfig cfg;
 
     std::ifstream in(filename);
@@ -86,11 +86,11 @@ ServerConfig load_config(const std::string& filename) {
         auto pos = raw.find('=');
         if (pos == std::string::npos) {
             std::cerr << "Warning: bad line " << line_no << " in " << filename
-                      << ": " << raw << "\n";
+                    << ": " << raw << "\n";
             continue;
         }
 
-        std::string key   = trim(raw.substr(0, pos));
+        std::string key = trim(raw.substr(0, pos));
         std::string value = trim(raw.substr(pos + 1));
 
         // ---- Handle [server] ----
@@ -109,12 +109,6 @@ ServerConfig load_config(const std::string& filename) {
                     throw std::runtime_error("Invalid threads at line " + std::to_string(line_no));
                 }
                 cfg.threads = t;
-            } else if (key == "use_ssl") {
-                bool b;
-                if (!parse_bool(value, b)) {
-                    throw std::runtime_error("Invalid bool for use_ssl at line " + std::to_string(line_no));
-                }
-                cfg.use_ssl = b;
             } else if (key == "www_root") {
                 cfg.www_root = value;
             } else {
@@ -123,7 +117,13 @@ ServerConfig load_config(const std::string& filename) {
         }
         // ---- Handle [ssl] ----
         else if (section == "ssl") {
-            if (key == "cert_file") {
+            if (key == "use_ssl") {
+                bool b;
+                if (!parse_bool(value, b)) {
+                    throw std::runtime_error("Invalid bool for use_ssl at line " + std::to_string(line_no));
+                }
+                cfg.use_ssl = b;
+            } else if (key == "cert_file") {
                 cfg.ssl_cert_file = value;
             } else if (key == "key_file") {
                 cfg.ssl_key_file = value;
@@ -149,7 +149,7 @@ ServerConfig load_config(const std::string& filename) {
             }
         } else {
             std::cerr << "Warning: key outside known section at line " << line_no
-                      << ": " << key << "\n";
+                    << ": " << key << "\n";
         }
     }
 

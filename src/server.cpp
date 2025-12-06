@@ -61,10 +61,10 @@ asio::awaitable<void> Server::do_accept() {
 template<typename Socket>
 asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation_slot token, size_t client_id) {
     Request req = co_await do_read(socket, token);
-    std::cout << req.to_string() << "\n";
+    // std::cout << req.to_string() << "\n";
 
     if (req.is_ws_upgrade()) {
-        std::cout << "It is an upgrade!" << std::endl;
+        // std::cout << "It is an upgrade!" << std::endl;
         const auto *handlers = find_ws(req.path);
         if (!handlers) {
             Response resp = Response::not_found("No such route for ws!");
@@ -358,3 +358,12 @@ void Server::MountStatic(std::string url_prefix, fs::path root) {
 void Server::post_task(std::function<void()> task) {
     asio::post(io_context_, std::move(task));
 }
+
+// void Server::emit_all_text(const std::string &msg) {
+//     std::lock_guard lock(ws_mutex);
+//     for (auto &[id, ws] : websockets_) {
+//         if (ws) {
+//             ws->send_text_async(msg);
+//         }
+//     }
+// }

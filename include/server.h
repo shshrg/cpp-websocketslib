@@ -85,6 +85,8 @@ public:
 
     void post_task(std::function<void()> task);
 
+    // void emit_all_text(const std::string &msg);
+
     class WsRouter {
     public:
         WsRouter &on_open(WsOpenHandler h) {

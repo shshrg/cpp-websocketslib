@@ -96,6 +96,12 @@ set_target_properties(client PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )
 
+add_executable(ws_client src/websocket_client.cpp)
+target_link_libraries(ws_client PRIVATE my_http_lib)
+set_target_properties(ws_client PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
+)
+
 # HTTP example
 add_executable(example_http examples/servers/http_basic.cpp)
 target_link_libraries(example_http PRIVATE my_http_lib)
