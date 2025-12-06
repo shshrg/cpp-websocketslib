@@ -14,7 +14,6 @@
 #include <iostream>
 #include <string>
 #include <random>
-#include "sha1.h"
 #include "websocket/WsFrame.h"
 #include "http/request.h"
 
@@ -40,7 +39,7 @@ public:
             "Upgrade: websocket\r\n"
             "Connection: Upgrade\r\n"
             "Sec-WebSocket-Key: " + key + "\r\n"
-            "sec-WebSocket-Version: 13\r\n\r\n";
+            "Sec-WebSocket-Version: 13\r\n\r\n";
         
         asio::write(socket, asio::buffer(req));
         
@@ -113,32 +112,41 @@ private:
     }
 
     void make_frame_text(const std::string& msg, std::vector<uint8_t>& out) {
-        uint8_t op = 0x81;
+        out.clear();
+
+        uint8_t op = 0x81; // FIN + text
         out.push_back(op);
 
         size_t len = msg.size();
-        uint8_t maskbit = 0x80;
-        
+        uint8_t maskbit = 0x80; // client must mask
+
         if (len < 126) {
-            out.push_back(maskbit | uint8_t(len));
-        } else if (len <= 0xffff) {
+            out.push_back(maskbit | static_cast<uint8_t>(len));
+        } else if (len <= 0xFFFF) {
             out.push_back(maskbit | 126);
-            out.push_back((len >> 8) & 0xff);
-            out.push_back(len & 0xff);
+            out.push_back((len >> 8) & 0xFF);
+            out.push_back(len & 0xFF);
         } else {
             out.push_back(maskbit | 127);
             for (int i = 7; i >= 0; --i)
-                out.push_back((len >> (i*8)) & 0xff);
+                out.push_back((len >> (8 * i)) & 0xFF);
         }
 
-        uint32_t mask = 0xAABBCCDD;
-        out.push_back((mask >> 24) & 0xff);
-        out.push_back((mask >> 16) & 0xff);
-        out.push_back((mask >> 8) & 0xff);
-        out.push_back(mask & 0xff);
+        // Generate 4 random mask bytes
+        std::array<uint8_t, 4> mask_bytes{};
+        std::random_device rd;
+        for (auto& b : mask_bytes) {
+            b = static_cast<uint8_t>(rd());
+        }
 
-        for (size_t i = 0; i < msg.size(); i++) {
-            out.push_back(msg[i] ^ ((uint8_t*)&mask)[i%4]);
+        // Write them into the header
+        out.insert(out.end(), mask_bytes.begin(), mask_bytes.end());
+
+        // XOR payload with the SAME bytes in the SAME order
+        for (size_t i = 0; i < msg.size(); ++i) {
+            auto byte = static_cast<uint8_t>(msg[i]);
+            byte ^= mask_bytes[i % 4];
+            out.push_back(byte);
         }
     }
 
@@ -151,23 +159,25 @@ private:
         bool masked = header[1] & 0x80;
         uint64_t len = header[1] & 0x7F;
 
+        
         if (!fin) throw std::runtime_error("Fragmentation not supported");
         if (opcode == 0x8) throw std::runtime_error("Server closed connection");
         if (opcode != 0x01) throw std::runtime_error("Only text supported");
 
+        std::cout << "Length of message received : " << len << "\n";
         if (len == 126) {
-            uint8_t ext[2];
+            std::array<uint8_t,2> ext{};
             asio::read(socket, asio::buffer(ext, 2));
-            len = (ext[0] << 8) | ext[1];
+            len = (static_cast<uint64_t>(ext[0]) << 8) | static_cast<uint64_t>(ext[1]);
         } else if (len == 127) {
             uint8_t ext[8];
             asio::read(socket, asio::buffer(ext, 8));
             len = 0;
             for (int i = 0; i < 8; i++)
-                len = (len << 8) | ext[i];
+                len = (len << 8) | static_cast<uint64_t>(ext[i]);
         }
 
-        uint8_t mask_key[4]{};
+        std::array<uint8_t,4> mask_key{0,0,0,0};
         if (masked)
             asio::read(socket, asio::buffer(mask_key, 4));
 

@@ -89,12 +89,7 @@ set_target_properties(server_app PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )
 
-# --- Executable client
-add_executable(client src/client.cpp src/http/request.cpp)
-target_link_libraries(client PRIVATE my_http_lib)
-set_target_properties(client PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
-)
+
 
 # HTTP example
 add_executable(example_http examples/servers/http_basic.cpp)
@@ -108,5 +103,12 @@ add_executable(example_ws examples/servers/ws_basic.cpp)
 target_link_libraries(example_ws PRIVATE my_http_lib)
 
 target_compile_definitions(example_http PRIVATE
+        DEFAULT_CONFIG_WS_PATH="${CMAKE_SOURCE_DIR}/examples/configs/ws_basic.conf"
+)
+
+add_executable(example_ws_client examples/clients/ws_client.cpp)
+target_link_libraries(example_ws_client PRIVATE my_http_lib)
+
+target_compile_definitions(example_ws_client PRIVATE
         DEFAULT_CONFIG_WS_PATH="${CMAKE_SOURCE_DIR}/examples/configs/ws_basic.conf"
 )
