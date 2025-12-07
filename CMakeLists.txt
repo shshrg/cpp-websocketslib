@@ -9,6 +9,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 
+option(BUILD_EXAMPLES "Build HTTP/WS examples" ON)
+option(BUILD_BENCHMARKS "Build benchmark executables" OFF)
+
 include(FetchContent)
 
 FetchContent_Declare(
@@ -23,7 +26,6 @@ set(ASIO_INCLUDE_DIR "${asio_SOURCE_DIR}/asio/include")
 # ===== Hash =====
 set(SHA1_URL "https://raw.githubusercontent.com/Chocobo1/Hash/master/src/sha1.h")
 set(SHA1_HEADER "${CMAKE_BINARY_DIR}/_deps/sha1/sha1.h")
-
 file(DOWNLOAD "${SHA1_URL}" "${SHA1_HEADER}" SHOW_PROGRESS)
 
 # ===== OpenSSL =====
@@ -42,6 +44,7 @@ else()
     set(USE_SSL_ENABLED FALSE)
 endif()
 
+# ==== Main Library ====
 add_library(my_http_lib
         src/server.cpp
         src/http/request.cpp
@@ -82,7 +85,7 @@ if (UNIX)
     endif ()
 endif ()
 
-# --- Executable server_app
+# ==== Main Executables ====
 add_executable(server_app src/main.cpp)
 target_link_libraries(server_app PRIVATE my_http_lib)
 set_target_properties(server_app PROPERTIES
@@ -102,17 +105,10 @@ set_target_properties(ws_client PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )
 
-# HTTP example
-add_executable(example_http examples/servers/http_basic.cpp)
-target_link_libraries(example_http PRIVATE my_http_lib)
+if(BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
 
-target_compile_definitions(example_http PRIVATE
-        DEFAULT_CONFIG_PATH="${CMAKE_SOURCE_DIR}/examples/configs/http_basic.conf"
-)
-
-add_executable(example_ws examples/servers/ws_basic.cpp)
-target_link_libraries(example_ws PRIVATE my_http_lib)
-
-target_compile_definitions(example_http PRIVATE
-        DEFAULT_CONFIG_WS_PATH="${CMAKE_SOURCE_DIR}/examples/configs/ws_basic.conf"
-)
+if(BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()

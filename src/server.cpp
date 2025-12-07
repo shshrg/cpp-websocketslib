@@ -50,7 +50,7 @@ asio::awaitable<void> Server::do_accept() {
         if (ec == asio::error::operation_aborted)
             co_return;
 
-        std::cout << "New client connected: " << client_id << "\n";
+        // std::cout << "New client connected: " << client_id << "\n";
 
         asio::co_spawn(io_context_,
                        handle_client(std::move(socket), client_id),
@@ -61,30 +61,54 @@ asio::awaitable<void> Server::do_accept() {
 
 template<typename Socket>
 asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation_slot token, size_t client_id) {
-    Request req = co_await do_read(socket, token);
-    // std::cout << req.to_string() << "\n";
 
-    if (req.is_ws_upgrade()) {
-        // std::cout << "It is an upgrade!" << std::endl;
-        const auto *handlers = find_ws(req.path);
-        if (!handlers) {
-            Response resp = Response::not_found("No such route for ws!");
-            co_await asio::async_write(socket, asio::buffer(resp.to_string()),
-                                       asio::bind_cancellation_slot(token, asio::use_awaitable));
+    while (true) {
+        Request req;
+        try {
+            req = co_await do_read(socket, token);
+        } catch (const std::exception &e) {
+            break;
+        }
+
+        if (req.is_ws_upgrade()) {
+            // std::cout << "It is an upgrade!" << std::endl;
+            const auto *handlers = find_ws(req.path);
+            if (!handlers) {
+                Response resp = Response::not_found("No such route for ws!");
+                co_await asio::async_write(socket, asio::buffer(resp.to_string()),
+                                           asio::bind_cancellation_slot(token, asio::use_awaitable));
+                co_return;
+            }
+            auto key = req.get_header_value("Sec-WebSocket-Key");
+            if (key.empty()) {
+                Response resp = Response::bad_request("No Sec-WebSocket-Key");
+                co_await asio::async_write(socket, asio::buffer(resp.to_string()),
+                                           asio::bind_cancellation_slot(token, asio::use_awaitable));
+                co_return;
+            }
+            co_await process_session_ws(socket, key, handlers, token, client_id);
             co_return;
         }
-        auto key = req.get_header_value("Sec-WebSocket-Key");
-        if (key.empty()) {
-            Response resp = Response::bad_request("No Sec-WebSocket-Key");
-            co_await asio::async_write(socket, asio::buffer(resp.to_string()),
-                                       asio::bind_cancellation_slot(token, asio::use_awaitable));
-            co_return;
+
+        Response resp = co_await handle_request(req);
+
+        bool keep_alive = true;
+        auto conn = req.get_header_value("Connection");
+        if (!conn.empty()) {
+            if (conn == "close") keep_alive = false;
         }
-        co_await process_session_ws(socket, key, handlers, token, client_id);
-        co_return;
+        if (!keep_alive) {
+            resp.set_header("Connection", "close");
+        } else {
+            resp.set_header("Connection", "keep-alive");
+        }
+        co_await do_write(socket, resp, token);
+
+        if (!keep_alive) {
+            break;
+        }
     }
-    Response resp = co_await handle_request(req);
-    co_await do_write(socket, resp, token);
+
 }
 
 template <typename Socket>
@@ -120,8 +144,7 @@ asio::awaitable<Response> Server::handle_request(const Request &req) {
 
     if (!static_mounts_.empty()) {
         Response res = co_await serve_static(req);
-        if (res.status != NotFound_404)
-            co_return res;
+        co_return res;
     }
     co_return Response::not_found();
 }
@@ -141,7 +164,7 @@ asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id
 		asio::ssl::stream<tcp::socket> ssl_stream(std::move(socket), ssl_context_);
 		co_await ssl_stream.async_handshake(asio::ssl::stream_base::server,
                                             asio::bind_cancellation_slot(token, asio::use_awaitable));
-		std::cout << "Client " << client_id << " use SSL\n";
+		// std::cout << "Client " << client_id << " use SSL\n";
 		co_await process_session(ssl_stream, token, client_id);
 	#else
 		std::cerr << "SSL requested but OpenSSL disabled — using plain TCP.\n";
@@ -331,7 +354,7 @@ asio::awaitable<Response> Server::serve_static(const Request &req) {
     if (tail.empty() || tail.back() == '/')
         tail = tail + "index.html";
 
-    fs::path srv_path = root / fs::path(tail);
+    fs::path srv_path = root / fs::path(tail).relative_path();
     std::error_code ec;
 
     fs::path canon_srv_path = weakly_canonical(srv_path, ec);

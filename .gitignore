@@ -91,3 +91,5 @@ certs/
 *.csr
 *.der
 *.p12
+
+/www/static
