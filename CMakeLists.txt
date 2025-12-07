@@ -51,6 +51,8 @@ add_library(my_http_lib
         src/http/response.cpp
         include/websocket/WsFrame.h
         src/config.cpp
+        src/http_client.cpp
+        src/websocket_client.cpp
 )
 
 target_include_directories(my_http_lib
@@ -85,28 +87,15 @@ if (UNIX)
     endif ()
 endif ()
 
-# ==== Main Executables ====
 add_executable(server_app src/main.cpp)
 target_link_libraries(server_app PRIVATE my_http_lib)
 set_target_properties(server_app PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )
 
-# --- Executable client
-add_executable(client src/client.cpp src/http/request.cpp)
-target_link_libraries(client PRIVATE my_http_lib)
-set_target_properties(client PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
-)
-
-add_executable(ws_client src/websocket_client.cpp)
-target_link_libraries(ws_client PRIVATE my_http_lib)
-set_target_properties(ws_client PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
-)
-
 if(BUILD_EXAMPLES)
-    add_subdirectory(examples)
+    add_subdirectory(examples/servers)
+    add_subdirectory(examples/clients)
 endif()
 
 if(BUILD_BENCHMARKS)
