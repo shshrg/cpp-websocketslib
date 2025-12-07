@@ -51,16 +51,19 @@ int main(int argc, char *argv[]) {
 
         server.WebSocketRouter("/chat")
                 .on_open([](const auto &ws) {
-                    std::cout << "WebSocket opened\n";
-                    ws->send_text_async("Welcome!");
+                    std::cout << "[WS] open\n";
+                    ws->send_text_async("Welcome! Type a message and everyone will see it.");
                 })
                 .on_message([](const auto &ws, std::string_view msg) {
-                    std::cout << "WebSocket message received\n";
+                    std::cout << "[WS] msg: " << "\n";
                     ws->send_text_async(std::string(msg));
+
+                    std::string broadcast = "[user] ";
+                    broadcast.append(msg);
+
                 })
                 .on_close([](const auto &ws, uint16_t code, std::string_view reason) {
-                    std::cout << "WebSocket closed with " << code
-                            << " reason: " << reason << "\n";
+                    std::cout << "[WS] close: " << code << " reason=" << reason << "\n";
                 });
 
 

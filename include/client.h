@@ -14,6 +14,7 @@
 #include <iostream>
 #include <string>
 #include <random>
+#include "hash/sha1_wrapper.h"
 #include "websocket/WsFrame.h"
 #include "http/request.h"
 
@@ -59,8 +60,43 @@ public:
     void receive_loop() {
         for (;;) {
             auto msg = read_frame_text();
-            std::cout << "[CLIENT] Received: " << msg << "\n";
         }
+    }
+
+    void send_close(uint16_t code = 1000, const std::string& reason = "")
+    {
+        std::string payload;
+        payload.push_back(static_cast<char>((code >> 8) & 0xFF));
+        payload.push_back(static_cast<char>(code & 0xFF));
+        payload += reason;
+
+        std::vector<uint8_t> frame;
+
+        uint8_t op = 0x88;
+        frame.push_back(op);
+
+        uint8_t maskbit = 0x80;
+        size_t len = payload.size();
+
+        if (len < 126) {
+            frame.push_back(maskbit | uint8_t(len));
+        } else {
+            throw std::runtime_error("Close reason too long");
+        }
+
+        uint32_t mask = 0x11223344;
+        uint8_t* m = reinterpret_cast<uint8_t*>(&mask);
+
+        // Write mask bytes
+        frame.push_back(m[0]);
+        frame.push_back(m[1]);
+        frame.push_back(m[2]);
+        frame.push_back(m[3]);
+
+        for (size_t i = 0; i < payload.size(); i++)
+            frame.push_back(payload[i] ^ m[i % 4]);
+
+        asio::write(socket, asio::buffer(frame));
     }
 private:
     asio::io_context& io;
@@ -114,11 +150,11 @@ private:
     void make_frame_text(const std::string& msg, std::vector<uint8_t>& out) {
         out.clear();
 
-        uint8_t op = 0x81; // FIN + text
+        uint8_t op = 0x81;
         out.push_back(op);
 
         size_t len = msg.size();
-        uint8_t maskbit = 0x80; // client must mask
+        uint8_t maskbit = 0x80;
 
         if (len < 126) {
             out.push_back(maskbit | static_cast<uint8_t>(len));
@@ -132,23 +168,21 @@ private:
                 out.push_back((len >> (8 * i)) & 0xFF);
         }
 
-        // Generate 4 random mask bytes
         std::array<uint8_t, 4> mask_bytes{};
         std::random_device rd;
         for (auto& b : mask_bytes) {
             b = static_cast<uint8_t>(rd());
         }
 
-        // Write them into the header
         out.insert(out.end(), mask_bytes.begin(), mask_bytes.end());
 
-        // XOR payload with the SAME bytes in the SAME order
         for (size_t i = 0; i < msg.size(); ++i) {
             auto byte = static_cast<uint8_t>(msg[i]);
             byte ^= mask_bytes[i % 4];
             out.push_back(byte);
         }
     }
+
 
     std::string read_frame_text() {
         uint8_t header[2];
@@ -161,7 +195,14 @@ private:
 
         
         if (!fin) throw std::runtime_error("Fragmentation not supported");
-        if (opcode == 0x8) throw std::runtime_error("Server closed connection");
+        if (opcode == 0x8) {
+            std::string payload(len, 0);
+            if (len > 0) {
+                asio::read(socket, asio::buffer(payload.data(), len));
+            }
+            socket.close();
+            throw std::runtime_error("Connection closed by server");
+        }
         if (opcode != 0x01) throw std::runtime_error("Only text supported");
 
         std::cout << "Length of message received : " << len << "\n";
@@ -190,6 +231,7 @@ private:
         
         return msg;
     }
+
 };
 
 

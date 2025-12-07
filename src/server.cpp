@@ -26,8 +26,9 @@ void Server::stop() {
     // Stop accepting clients
     server_cancel_.emit(asio::cancellation_type::all);
 
-    // Finish read/write client operations
     emit_all();
+
+    close_websockets();
 
     if (work_guard_)
         work_guard_.reset();
@@ -61,10 +62,10 @@ asio::awaitable<void> Server::do_accept() {
 template<typename Socket>
 asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation_slot token, size_t client_id) {
     Request req = co_await do_read(socket, token);
-    std::cout << req.to_string() << "\n";
+    // std::cout << req.to_string() << "\n";
 
     if (req.is_ws_upgrade()) {
-        std::cout << "It is an upgrade!" << std::endl;
+        // std::cout << "It is an upgrade!" << std::endl;
         const auto *handlers = find_ws(req.path);
         if (!handlers) {
             Response resp = Response::not_found("No such route for ws!");
@@ -358,3 +359,22 @@ void Server::MountStatic(std::string url_prefix, fs::path root) {
 void Server::post_task(std::function<void()> task) {
     asio::post(io_context_, std::move(task));
 }
+
+
+void Server::close_websockets() {
+    std::vector<std::shared_ptr<WebSocket>> to_close;
+    {
+        std::lock_guard lock(ws_mutex);
+        to_close.reserve(websockets_.size());
+        for (auto &entry : websockets_) {
+            if (entry.second) {
+                to_close.push_back(entry.second);
+            }
+        }
+    }
+    for (auto &ws : to_close) {
+        if (!ws) continue;
+        ws->close(1001, "Server stopped working");
+    }
+}
+

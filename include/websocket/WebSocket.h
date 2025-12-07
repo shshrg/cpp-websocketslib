@@ -46,23 +46,16 @@ public:
     WebSocket(Socket &&socket, const WsHandlers *handlers, asio::cancellation_slot token, size_t client_id)
         : socket_(AnySocket(std::forward<Socket>(socket))),
           client_id_(client_id),
-          slot_(token) {
+          slot_(token),
+          write_strand_(
+              asio::make_strand(
+                  std::visit(
+                      [](auto &sock) { return sock.get_executor(); },
+                      socket_
+                  )
+              )
+          ) {
         if (handlers) handlers_ = *handlers;
-        if (slot_.is_connected()) {
-            slot_.assign(
-                [this](asio::cancellation_type) {
-                    std::error_code ec;
-                    std::visit(
-                        [&](auto &sock) {
-                            using tcp = asio::ip::tcp;
-                            auto &ll = sock.lowest_layer();
-                            ll.shutdown(tcp::socket::shutdown_both, ec);
-                            ll.close(ec);
-                        },
-                        socket_);
-                }
-            );
-        }
     }
 
     // pass lambda which will be executed when closing
@@ -85,9 +78,6 @@ public:
         co_await do_read_loop();
         co_return;
     }
-
-    // todo
-    asio::awaitable<void> send(std::vector<uint8_t> bytes);
 
     void close(uint16_t code, const std::string_view &reason) {
         uint8_t expected = WS_OPEN;
@@ -112,13 +102,9 @@ public:
 
     void close_async(uint16_t code = 1000, std::string reason = {}) {
         auto self = shared_from_this();
-        auto ex = std::visit(
-            [](auto &sock) { return sock.get_executor(); },
-            socket_
-        );
 
         asio::co_spawn(
-            ex,
+            write_strand_,
             [self, code, reason = std::move(reason)]() mutable -> asio::awaitable<void> {
                 co_await self->send_close_with_reason(code, reason);
                 self->close(code, reason);
@@ -131,13 +117,8 @@ public:
     void send_text_async(std::string payload) {
         auto self = shared_from_this();
 
-        auto ex = std::visit(
-            [](auto &sock) { return sock.get_executor(); },
-            socket_
-        );
-
         asio::co_spawn(
-            ex,
+            write_strand_,
             [self, payload = std::move(payload)]() mutable -> asio::awaitable<void> {
                 co_await self->send_text(payload);
                 co_return;
@@ -154,6 +135,7 @@ private:
     asio::cancellation_slot slot_;
     asio::cancellation_signal signal_;
 
+    asio::strand<asio::any_io_executor> write_strand_;
     std::function<void(size_t)> server_cleanup_;
 
     std::atomic<uint8_t> state_{WS_OPEN};
@@ -229,7 +211,7 @@ private:
 
         FrameBody fb{maxMsgSize};
 
-        while (true) {
+        while (state_.load(std::memory_order_acquire) == WS_OPEN) {
             WsFrame f{};
             co_await async_read_any(socket_,
                                     asio::buffer(header.data(), 2),
@@ -342,7 +324,7 @@ private:
             co_await handle_ping_frame(f.payload_data);
             co_return;
         }
-        if (opcode == WS_PING) {
+        if (opcode == WS_PONG) {
             if (!f.fin) {
                 co_await send_close_with_reason(1002, "Fragmented control");
                 if (handlers_.on_close) handlers_.on_close(shared_from_this(), 1002, "Fragmented control");
@@ -424,7 +406,7 @@ private:
 
     asio::awaitable<void> handle_text_bytes(const std::string &payload) {
         if (handlers_.on_message) handlers_.on_message(shared_from_this(), std::string(payload));
-        co_await send_text(payload);
+        // co_await send_text(payload);
         co_return;
     }
 
