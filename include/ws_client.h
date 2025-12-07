@@ -8,66 +8,124 @@
 #ifdef USE_SSL
 #include <asio/ssl.hpp>
 #endif
-#include <asio/awaitable.hpp>
-#include <asio/use_awaitable.hpp>
-#include <asio/experimental/awaitable_operators.hpp>
 #include <iostream>
 #include <string>
 #include <random>
-#include "websocket/WsFrame.h"
-#include "http/request.h"
-
+#include <atomic>
 
 class WebSocketClient {
 public:
-    WebSocketClient()
-        : socket(internal_io)
+    explicit WebSocketClient(bool use_ssl = false)
+        : use_ssl_(use_ssl), stopped(false)
+#ifdef USE_SSL
+        , ssl_ctx_(asio::ssl::context::tls_client)
+        , ssl_socket_(internal_io_, ssl_ctx_)
+#endif
+        , socket_(internal_io_)
     {}
+
+#ifdef USE_SSL
+    void set_verify_cert_file(const std::string& file) {
+        if (!use_ssl_) return;
+        ssl_ctx_.load_verify_file(file);
+        ssl_ctx_.set_verify_mode(asio::ssl::verify_peer);
+    }
+#endif
 
     void connect(const std::string& host,
                  const std::string& port,
                  const std::string& path = "/ws")
     {
-        asio::ip::tcp::resolver resolver(internal_io);
+        asio::ip::tcp::resolver resolver(internal_io_);
         auto endpoints = resolver.resolve(host, port);
 
-        asio::connect(socket, endpoints);
-        key = generate_key();
+        if (use_ssl_) {
+#ifdef USE_SSL
+            asio::connect(ssl_socket_.lowest_layer(), endpoints);
+            SSL_set_tlsext_host_name(ssl_socket_.native_handle(), host.c_str());
+            ssl_socket_.handshake(asio::ssl::stream_base::client);
+#else
+            throw std::runtime_error("SSL not supported");
+#endif
+        } else {
+            asio::connect(socket_, endpoints);
+        }
+
+        key_ = generate_key();
 
         std::string req =
             "GET " + path + " HTTP/1.1\r\n"
             "Host: " + host + "\r\n"
             "Upgrade: websocket\r\n"
             "Connection: Upgrade\r\n"
-            "Sec-WebSocket-Key: " + key + "\r\n"
+            "Sec-WebSocket-Key: " + key_ + "\r\n"
             "Sec-WebSocket-Version: 13\r\n\r\n";
 
-        asio::write(socket, asio::buffer(req));
+        if (use_ssl_) {
+#ifdef USE_SSL
+            asio::write(ssl_socket_, asio::buffer(req));
+#else
+            throw std::runtime_error("SSL not supported");
+#endif
+        } else {
+            asio::write(socket_, asio::buffer(req));
+        }
 
         std::string response = read_http_headers();
         if (response.find("101") == std::string::npos)
             throw std::runtime_error("Handshake failed:\n" + response);
-
-        std::cout << "[CLIENT] Handshake successful";
     }
 
     void send_text(const std::string& msg) {
+        if (stopped) return;
         std::vector<uint8_t> frame;
         make_frame_text(msg, frame);
-        asio::write(socket, asio::buffer(frame));
+
+        if (use_ssl_) {
+#ifdef USE_SSL
+            asio::write(ssl_socket_, asio::buffer(frame));
+#else
+            throw std::runtime_error("SSL not supported");
+#endif
+        } else {
+            asio::write(socket_, asio::buffer(frame));
+        }
     }
 
     void receive_loop() {
         for (;;) {
-            auto msg = read_frame_text();
-            std::cout << "[CLIENT] Received: " << msg << "\n";
+            try {
+                auto msg = read_frame_text();
+                std::cout << "[WS CLIENT] Received: " << msg << "\n";
+            } catch (const std::exception& e) {
+                std::string what = e.what();
+                if (what == "Server closed connection"
+                    || what.find("stream truncated") != std::string::npos
+                    || what.find("eof") != std::string::npos
+                    || what.find("EOF") != std::string::npos
+                ) {
+                    std::cout << "[WS CLIENT] Connection closed by server." << std::endl;
+                } else {
+                    std::cerr << "[WS CLIENT] Error: " << what << std::endl;
+                }
+                stopped = true;
+                break;
+            }
         }
+        stopped = true;
     }
 
+    std::atomic<bool> stopped;
+
 private:
-    asio::io_context internal_io;
-    asio::ip::tcp::socket socket;
-    std::string key;
+    asio::io_context internal_io_;
+    bool use_ssl_;
+#ifdef USE_SSL
+    asio::ssl::context ssl_ctx_;
+    asio::ssl::stream<asio::ip::tcp::socket> ssl_socket_;
+#endif
+    asio::ip::tcp::socket socket_;
+    std::string key_;
 
     static std::string base64_encode(const unsigned char* data, size_t len) {
         static const char table[] =
@@ -100,12 +158,18 @@ private:
         asio::streambuf buf;
         std::string out;
         std::string line;
-
-        while (true) {
-            asio::read_until(socket, buf, "\r\n");
+        for (;;) {
+            if (use_ssl_) {
+#ifdef USE_SSL
+                asio::read_until(ssl_socket_, buf, "\r\n");
+#else
+                throw std::runtime_error("SSL not supported");
+#endif
+            } else {
+                asio::read_until(socket_, buf, "\r\n");
+            }
             std::istream is(&buf);
             std::getline(is, line);
-
             if (line == "\r" || line.empty()) break;
             out += line + "\n";
         }
@@ -114,7 +178,6 @@ private:
 
     void make_frame_text(const std::string& msg, std::vector<uint8_t>& out) {
         out.clear();
-
         uint8_t op = 0x81;
         out.push_back(op);
 
@@ -137,7 +200,6 @@ private:
         std::random_device rd;
         for (auto& b : mask_bytes)
             b = static_cast<uint8_t>(rd());
-
         out.insert(out.end(), mask_bytes.begin(), mask_bytes.end());
 
         for (size_t i = 0; i < msg.size(); ++i) {
@@ -149,7 +211,25 @@ private:
 
     std::string read_frame_text() {
         uint8_t header[2];
-        asio::read(socket, asio::buffer(header, 2));
+        std::error_code ec;
+        size_t n = 0;
+        if (use_ssl_) {
+#ifdef USE_SSL
+            n = asio::read(ssl_socket_, asio::buffer(header, 2), ec);
+#else
+            throw std::runtime_error("SSL not supported");
+#endif
+        } else {
+            n = asio::read(socket_, asio::buffer(header, 2), ec);
+        }
+        if (ec == asio::error::eof
+#ifdef USE_SSL
+            || (use_ssl_ && ec == asio::ssl::error::stream_truncated)
+#endif
+            ) {
+            throw std::runtime_error("Server closed connection");
+        }
+        if (ec) throw std::runtime_error("Read error: " + ec.message());
 
         bool fin = header[0] & 0x80;
         uint8_t opcode = header[0] & 0x0F;
@@ -161,23 +241,56 @@ private:
         if (opcode != 0x01) throw std::runtime_error("Only text supported");
 
         if (len == 126) {
-            std::array<uint8_t,2> ext{};
-            asio::read(socket, asio::buffer(ext, 2));
+            uint8_t ext[2];
+            if (use_ssl_) {
+#ifdef USE_SSL
+                asio::read(ssl_socket_, asio::buffer(ext, 2));
+#else
+                throw std::runtime_error("SSL not supported");
+#endif
+            } else {
+                asio::read(socket_, asio::buffer(ext, 2));
+            }
             len = (uint64_t(ext[0]) << 8) | uint64_t(ext[1]);
         } else if (len == 127) {
             uint8_t ext[8];
-            asio::read(socket, asio::buffer(ext, 8));
+            if (use_ssl_) {
+#ifdef USE_SSL
+                asio::read(ssl_socket_, asio::buffer(ext, 8));
+#else
+                throw std::runtime_error("SSL not supported");
+#endif
+            } else {
+                asio::read(socket_, asio::buffer(ext, 8));
+            }
             len = 0;
-            for (int i = 0; i < 8; i++)
+            for (int i = 0; i < 8; ++i)
                 len = (len << 8) | uint64_t(ext[i]);
         }
 
-        std::array<uint8_t, 4> mask_key{0,0,0,0};
-        if (masked)
-            asio::read(socket, asio::buffer(mask_key, 4));
+        std::array<uint8_t, 4> mask_key{0, 0, 0, 0};
+        if (masked) {
+            if (use_ssl_) {
+#ifdef USE_SSL
+                asio::read(ssl_socket_, asio::buffer(mask_key, 4));
+#else
+                throw std::runtime_error("SSL not supported");
+#endif
+            } else {
+                asio::read(socket_, asio::buffer(mask_key, 4));
+            }
+        }
 
         std::string msg(len, 0);
-        asio::read(socket, asio::buffer(msg.data(), len));
+        if (use_ssl_) {
+#ifdef USE_SSL
+            asio::read(ssl_socket_, asio::buffer(msg.data(), len));
+#else
+            throw std::runtime_error("SSL not supported");
+#endif
+        } else {
+            asio::read(socket_, asio::buffer(msg.data(), len));
+        }
 
         if (masked) {
             for (size_t i = 0; i < len; i++)
@@ -188,4 +301,4 @@ private:
     }
 };
 
-#endif
+#endif // WEBSOCKET_CLIENT_SYNC

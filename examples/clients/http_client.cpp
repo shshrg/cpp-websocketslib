@@ -1,9 +1,15 @@
-#include "config.h"
-#include "http_client.h"
+/*
+Example of a synchronous HTTP client connecting to server and sending messages
+*/
 
 #ifndef DEFAULT_CONFIG_HTTP_PATH
 #define DEFAULT_CONFIG_HTTP_PATH "examples/configs/http_basic.conf"
 #endif
+
+#include <iostream>
+#include <string>
+#include "config.h"
+#include "http_client.h"
 
 int main(int argc, char* argv[]) {
     std::string config_path = DEFAULT_CONFIG_HTTP_PATH;
@@ -31,35 +37,57 @@ int main(int argc, char* argv[]) {
 
         std::cout << "Connecting to " << proto << "://" << host << ":" << port << " ...\n";
         HttpClient client(cfg.use_ssl);
+
+#ifdef USE_SSL
+        if (cfg.use_ssl && !cfg.ssl_cert_file.empty()) {
+            client.set_verify_cert_file(cfg.ssl_cert_file);
+        }
+#endif
+
         client.connect(host, port);
         std::cout << "[CLIENT] Connected\n";
 
-        std::cout << "> ";
-        std::string line;
-        if (std::getline(std::cin, line)) {
+        for (;;) {
+            if (client.stopped) break;
+            std::cout << "> ";
+            std::string line;
+            if (!std::getline(std::cin, line))
+                break;
+            if (client.stopped) break;
+            if (line.empty()) continue;
+
+            // GET
             if (line.starts_with("get ")) {
                 std::string path = line.substr(4);
-                try {
-                    std::cout << "[CLIENT] GET " << path << " response:\n"
-                              << client.get(path) << "\n";
-                } catch (const std::exception& e) {
-                    std::cout << "[CLIENT] HTTP GET error: " << e.what() << "\n";
-                }
-            } else if (line.starts_with("post ")) {
-                size_t sp = line.find(' ', 5);
-                if (sp != std::string::npos) {
-                    std::string path = line.substr(5, sp - 5);
-                    std::string body = line.substr(sp + 1);
-                    try {
-                        std::cout << "[CLIENT] POST " << path << " response:\n"
-                                  << client.post(path, body) << "\n";
-                    } catch (const std::exception& e) {
-                        std::cout << "[CLIENT] HTTP POST error: " << e.what() << "\n";
-                    }
+                std::cout << "[CLIENT] GET " << path << " response:\n"
+                          << client.get(path) << "\n";
+            }
+
+            // POST
+            else if (line.starts_with("post ")) {
+                std::string rest = line.substr(5);
+                size_t sp = rest.find(' ');
+
+                std::string path;
+                std::string body;
+
+                if (sp == std::string::npos) {
+                    path = rest;
+                    body = "";
                 } else {
-                    std::cout << "[CLIENT] Invalid POST command.\n";
+                    path = rest.substr(0, sp);
+                    body = rest.substr(sp + 1);
                 }
-            } else {
+
+                std::cout << "[CLIENT] POST " << path << " response:\n"
+                          << client.post(path, body) << "\n";
+            }
+
+            else if (line == "quit") {
+                break;
+            }
+
+            else {
                 std::cout << "[CLIENT] Unknown command\n";
             }
         }
