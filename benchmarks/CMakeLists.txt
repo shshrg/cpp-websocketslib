@@ -20,18 +20,21 @@ target_link_libraries(bench_myserver_http PRIVATE my_http_lib)
 set_target_properties(bench_myserver_http PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )
+target_compile_definitions(bench_myserver_http PRIVATE
+        DEFAULT_CONFIG_WS_PATH="${CMAKE_SOURCE_DIR}/examples/configs/ws_basic.conf"
+)
 
 
 # --- cpp-httplib benchmark ---
 
 # ==== Hello ====
-add_executable(bench_httplib_http
+add_executable(bench_httplib
         http/bench_httplib.cpp
 )
-target_include_directories(bench_httplib_http PRIVATE
+target_include_directories(bench_httplib PRIVATE
         ${cpp_httplib_SOURCE_DIR}
 )
 
-set_target_properties(bench_httplib_http PROPERTIES
+set_target_properties(bench_httplib PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )

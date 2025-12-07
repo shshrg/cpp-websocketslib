@@ -57,6 +57,10 @@ for (let i = 0; i < concurrency; i++) send_one();
 setTimeout(() => {
     // results
     lat.sort((a, b) => a - b);
+    if (lat.length === 0) {
+        console.log("No completed requests in the time window – probably file too big or duration too short.");
+        process.exit(0);
+    }
     const p = (x) => lat[Math.floor(lat.length * x)];
 
     console.log("*** POST /echo Benchmark ***");

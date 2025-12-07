@@ -3,15 +3,46 @@
 #include <asio.hpp>
 #include <iostream>
 #include <thread>
+#include "config.h"
 
-int main() {
+#ifndef DEFAULT_CONFIG_PATH
+#define DEFAULT_CONFIG_PATH "examples/configs/http_basic.conf"
+#endif
+
+namespace fs = std::filesystem;
+
+int main(int argc, char *argv[]) {
+    std::string config_path = DEFAULT_CONFIG_PATH;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--config" && i + 1 < argc) {
+            config_path = argv[++i];
+        } else if (arg == "--help" || arg == "-h") {
+            std::cout << "Usage: " << argv[0]
+                      << " [--config path/to/config.conf]\n";
+            return 0;
+        } else {
+            std::cerr << "Unknown argument: " << arg << "\n";
+            std::cerr << "Use --help for usage.\n";
+            return 1;
+        }
+    }
+
     try {
+        std::cout << "Loading config: " << config_path << "\n";
+        ServerConfig cfg = load_config(config_path);
+
         asio::io_context io;
 
-        auto addr = asio::ip::make_address("0.0.0.0");
-        unsigned short port = 8080;
+        auto addr = asio::ip::make_address(cfg.address);
+        bool use_ssl  = cfg.use_ssl;
 
-        Server server(io, addr, port, /*use_ssl=*/false);
+        if (use_ssl) {
+            std::cerr << "Warning: this is HTTP example, but config enabled SSL.\n";
+        }
+
+        Server server(io, addr, cfg.port, use_ssl);
 
         server.Get("/hello", [](const Request &req) {
             (void) req;
@@ -34,10 +65,11 @@ int main() {
             return r;
         });
 
-        // std::size_t threads = std::max<std::size_t>(
-        //         1, std::thread::hardware_concurrency()
-        // );
-        size_t threads = 4;
+        size_t threads = cfg.threads;
+
+        if (threads == 0) {
+            threads = std::max<std::size_t>(1, std::thread::hardware_concurrency());
+        }
 
         server.start(threads);
 

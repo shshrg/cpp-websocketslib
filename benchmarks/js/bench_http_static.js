@@ -60,6 +60,11 @@ setTimeout(() => {
     console.log(`RPS:       ${(completed / duration).toFixed(1)}`);
 
     lat.sort((a, b) => a - b);
+
+    if (lat.length === 0) {
+        console.log("No completed requests in the time window – probably file too big or duration too short.");
+        process.exit(0);
+    }
     const p = (x) => lat[Math.floor((lat.length - 1) * x)];
 
     console.log(`p50: ${p(0.5).toFixed(2)} ms`);
