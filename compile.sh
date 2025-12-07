@@ -4,7 +4,8 @@ set -eu
 TYPE=Debug
 DIR=build-debug
 USE_OPENSSL=ON
-BUILD_EXAMPLES=ON
+BUILD_EXAMPLES_SERVER=ON
+BUILD_EXAMPLES_CLIENT=ON
 BUILD_BENCHMARKS=OFF
 
 while [[ $# -gt 0 ]]; do
@@ -24,7 +25,14 @@ while [[ $# -gt 0 ]]; do
             USE_OPENSSL=OFF
             ;;
         --no-examples)
-            BUILD_EXAMPLES=OFF
+            BUILD_EXAMPLES_SERVER=OFF
+            BUILD_EXAMPLES_CLIENT=OFF
+            ;;
+        --no-examples-server)
+            BUILD_EXAMPLES_SERVER=OFF
+            ;;
+        --no-examples-client)
+            BUILD_EXAMPLES_CLIENT=OFF
             ;;
         --bench)
             BUILD_BENCHMARKS=ON
@@ -45,6 +53,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --openssl           Build with OpenSSL (default)"
             echo "  --no-openssl        Build without OpenSSL"
             echo "  --no-examples       Do not build examples"
+            echo "  --no-examples-serv       Do not build server examples"
+            echo "  --no-examples-cl       Do not build client examples"
             echo "  --bench             Build benchmarks"
             echo "  --no-bench          Do not build benchmarks (default)"
             echo "  -c, --clean         Remove build directories"
@@ -63,7 +73,8 @@ mkdir -p "$DIR"
 cmake -S . -B "$DIR" \
     -DCMAKE_BUILD_TYPE="$TYPE" \
     -DUSE_OPENSSL="$USE_OPENSSL" \
-    -DBUILD_EXAMPLES="$BUILD_EXAMPLES" \
+    -DBUILD_EXAMPLES_SERVER="$BUILD_EXAMPLES_SERVER" \
+    -DBUILD_EXAMPLES_CLIENT="$BUILD_EXAMPLES_CLIENT" \
     -DBUILD_BENCHMARKS="$BUILD_BENCHMARKS"
 
 cmake --build "$DIR" -j"$(nproc)"

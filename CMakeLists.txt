@@ -9,7 +9,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 
-option(BUILD_EXAMPLES "Build HTTP/WS examples" ON)
+option(BUILD_EXAMPLES_SERVER "Build HTTP/WS server examples" ON)
+option(BUILD_EXAMPLES_CLIENT "Build HTTP/WS client examples" ON)
 option(BUILD_BENCHMARKS "Build benchmark executables" OFF)
 
 include(FetchContent)
@@ -93,8 +94,11 @@ set_target_properties(server_app PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )
 
-if(BUILD_EXAMPLES)
+if(BUILD_EXAMPLES_SERVER)
     add_subdirectory(examples/servers)
+endif()
+
+if(BUILD_EXAMPLES_CLIENT)
     add_subdirectory(examples/clients)
 endif()
 
