@@ -35,6 +35,7 @@ struct Response {
     static std::string_view reason_phrase(int st) noexcept;
 
     std::string to_string() const;
+    std::string to_string_header() const;
 };
 
 

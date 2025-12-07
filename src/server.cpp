@@ -61,7 +61,6 @@ asio::awaitable<void> Server::do_accept() {
 
 template<typename Socket>
 asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation_slot token, size_t client_id) {
-
     while (true) {
         Request req;
         try {
@@ -108,16 +107,14 @@ asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation
             break;
         }
     }
-
 }
 
-template <typename Socket>
+template<typename Socket>
 asio::awaitable<void> Server::process_session_ws(Socket &socket,
-                                         const std::string &sec_ws_key,
-                                         const WsHandlers *handlers,
-                                         asio::cancellation_slot token,
-                                         size_t client_id)
-{
+                                                 const std::string &sec_ws_key,
+                                                 const WsHandlers *handlers,
+                                                 asio::cancellation_slot token,
+                                                 size_t client_id) {
     auto ws = std::make_shared<WebSocket>(
         std::move(socket), handlers, token, client_id);
 
@@ -126,11 +123,10 @@ asio::awaitable<void> Server::process_session_ws(Socket &socket,
             remove_websocket(id);
         }
     );
-    
+
     register_websocket(client_id, ws);
     co_await ws->start(sec_ws_key);
 }
-
 
 
 asio::awaitable<Response> Server::handle_request(const Request &req) {
@@ -160,19 +156,19 @@ asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id
     } guard{this, client_id};
 
     if (use_ssl_) {
-	#ifdef USE_SSL
-		asio::ssl::stream<tcp::socket> ssl_stream(std::move(socket), ssl_context_);
-		co_await ssl_stream.async_handshake(asio::ssl::stream_base::server,
+#ifdef USE_SSL
+        asio::ssl::stream<tcp::socket> ssl_stream(std::move(socket), ssl_context_);
+        co_await ssl_stream.async_handshake(asio::ssl::stream_base::server,
                                             asio::bind_cancellation_slot(token, asio::use_awaitable));
-		// std::cout << "Client " << client_id << " use SSL\n";
-		co_await process_session(ssl_stream, token, client_id);
-	#else
-		std::cerr << "SSL requested but OpenSSL disabled — using plain TCP.\n";
-		co_await process_session(socket, token, client_id);
-	#endif
-	} else {
-		co_await process_session(socket, token, client_id);
-	}
+        // std::cout << "Client " << client_id << " use SSL\n";
+        co_await process_session(ssl_stream, token, client_id);
+#else
+        std::cerr << "SSL requested but OpenSSL disabled — using plain TCP.\n";
+        co_await process_session(socket, token, client_id);
+#endif
+    } else {
+        co_await process_session(socket, token, client_id);
+    }
     co_return;
 }
 
@@ -194,48 +190,76 @@ asio::awaitable<Request> Server::do_read(Socket &socket, asio::cancellation_slot
 }
 
 template<typename Socket>
-asio::awaitable<void> Server::do_write(Socket &socket, const Response &response_in, asio::cancellation_slot token) {
-    Response response = response_in;
-
+asio::awaitable<void> Server::do_write(Socket &socket, Response &response, asio::cancellation_slot token) {
     if (!response.sendfile_path.empty()) {
         asio::stream_file file(co_await asio::this_coro::executor);
         std::error_code ec;
         auto open_res = file.open(response.sendfile_path.string().c_str(), asio::file_base::read_only, ec);
 
-        (void)open_res;
+        (void) open_res;
 
         if (ec) co_return;
 
         auto file_sz = file.size(ec);
-        if (!ec && file_sz > 0) {
-            response.body.resize(file_sz);
-            size_t off = 0;
-            while (off < response.body.size()) {
-                size_t read_bytes = co_await file.async_read_some(
-                    asio::buffer(response.body.data() + off, response.body.size() - off),
-                    asio::bind_cancellation_slot(token, asio::use_awaitable));
 
-                if (read_bytes == 0) break;
-                off += read_bytes;
-            }
-            response.body.resize(off);
-        } else {
-            std::array<char, 64 * 1024> buffer{};
-            while (true) {
-                std::size_t read_bytes = co_await file.async_read_some(
-                    asio::buffer(buffer),
-                    asio::bind_cancellation_slot(token, asio::use_awaitable));
+        if (ec || file_sz == static_cast<std::uintmax_t>(-1)) co_return;
 
-                if (read_bytes == 0) break;
+        response.set_header("Content-Length", std::to_string(file_sz));
 
-                response.body.append(buffer.data(), read_bytes);
-            }
+        std::string head = response.to_string_header();
+
+        co_await asio::async_write(
+            socket,
+            asio::buffer(head),
+            asio::bind_cancellation_slot(token, asio::use_awaitable)
+        );
+
+        std::array<char, 128 * 1024> buf{};
+        std::uintmax_t remaining = file_sz;
+
+        while (remaining > 0) {
+            size_t to_read = std::min<std::uintmax_t>(remaining, buf.size());
+
+            size_t n = co_await file.async_read_some(
+                asio::buffer(buf.data(), to_read),
+                asio::bind_cancellation_slot(token, asio::use_awaitable)
+            );
+
+            if (n == 0) break;
+
+            remaining -= n;
+
+            co_await asio::async_write(
+                socket,
+                asio::buffer(buf.data(), n),
+                asio::bind_cancellation_slot(token, asio::use_awaitable)
+            );
         }
+        co_return;
+    }
 
+
+    if (!response.has_header("Content-Length")) {
         response.set_header("Content-Length", std::to_string(response.body.size()));
     }
-    std::string payload = response.to_string();
-    co_await asio::async_write(socket, asio::buffer(payload), asio::bind_cancellation_slot(token, asio::use_awaitable));
+
+    std::string head = response.to_string_header();
+
+    if (response.body.empty()) {
+        co_await asio::async_write(
+            socket,
+            asio::buffer(head),
+            asio::bind_cancellation_slot(token, asio::use_awaitable)
+        );
+    } else {
+        std::array<asio::const_buffer, 2> bufs = {
+            asio::buffer(head),
+            asio::buffer(response.body),
+        };
+        co_await asio::async_write(
+            socket, bufs,
+            asio::bind_cancellation_slot(token, asio::use_awaitable));
+    }
 }
 
 void Server::add_client(size_t client_id) {
@@ -288,7 +312,7 @@ bool Server::setup_ssl() {
         try {
             ssl_context_.use_certificate_chain_file("certs/localhost.crt");
             ssl_context_.use_private_key_file("certs/localhost.key", asio::ssl::context::pem);
-        } catch (const asio::system_error& e) {
+        } catch (const asio::system_error &e) {
             std::cerr << "SSL setup failed: " << e.what() << std::endl;
             return false;
         }
@@ -385,19 +409,18 @@ void Server::post_task(std::function<void()> task) {
 
 
 void Server::close_websockets() {
-    std::vector<std::shared_ptr<WebSocket>> to_close;
+    std::vector<std::shared_ptr<WebSocket> > to_close;
     {
         std::lock_guard lock(ws_mutex);
         to_close.reserve(websockets_.size());
-        for (auto &entry : websockets_) {
+        for (auto &entry: websockets_) {
             if (entry.second) {
                 to_close.push_back(entry.second);
             }
         }
     }
-    for (auto &ws : to_close) {
+    for (auto &ws: to_close) {
         if (!ws) continue;
         ws->close(1001, "Server stopped working");
     }
 }
-

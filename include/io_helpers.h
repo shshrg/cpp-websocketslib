@@ -6,10 +6,15 @@
 #include <algorithm>
 
 inline std::string take_front(asio::streambuf &buf, std::size_t n) {
-    auto seq = buf.data();
+    const auto avail = buf.size();
+    n = std::min(n, avail);
     std::string out(n, '\0');
-    std::copy_n(asio::buffers_begin(seq), n, out.begin());
-    buf.consume(n);
+    auto bytes_copied = asio::buffer_copy(
+        asio::buffer(out.data(), n),
+        buf.data(),
+        n
+        );
+    buf.consume(bytes_copied);
     return out;
 }
 
@@ -32,26 +37,38 @@ co_read_body(Socket &socket,
              asio::streambuf &buffer,
              std::size_t content_len,
              asio::cancellation_slot token) {
-    std::string body;
-    body.reserve(content_len);
+    std::string body(content_len, '\0');
+    size_t already = 0;
 
     {
         const std::size_t avail = buffer.size();
         const std::size_t take = std::min(avail, content_len);
-        if (take) {
-            body += take_front(buffer, take);
+        if (take > 0) {
+            auto seq = buffer.data();
+            std::copy_n(
+                asio::buffers_begin(seq),
+                take,
+                body.begin()
+            );
+            buffer.consume(take);
+            already = take;
         }
     }
+    size_t remaining = content_len - already;
+    size_t done = 0;
 
-    while (body.size() < content_len) {
-        const std::size_t need = content_len - body.size();
-
+    while (done < remaining) {
         std::size_t n = co_await asio::async_read(
-            socket, buffer,
-            asio::transfer_exactly(need),
+            socket, asio::buffer(body.data() + already + done, remaining - done),
             asio::bind_cancellation_slot(token, asio::use_awaitable));
 
-        body += take_front(buffer, n);
+        if (n == 0) break;
+
+        done += n;
+    }
+
+    if (already + done < content_len) {
+        body.resize(already + done);
     }
 
     co_return body;

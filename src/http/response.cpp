@@ -121,3 +121,24 @@ std::string_view Response::reason_phrase(int st) noexcept {
         default: return "";
     }
 }
+
+std::string Response::to_string_header() const {
+    std::string out;
+
+    out += version;
+    out += " ";
+    out += std::to_string(status);
+    out += " ";
+    out += reason_phrase(status);
+    out += "\r\n";
+
+    for (auto & [name, value] : headers) {
+        out += name;
+        out += ": ";
+        out += value;
+        out += "\r\n";
+    }
+
+    out += "\r\n";
+    return out;
+}

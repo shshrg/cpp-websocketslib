@@ -183,7 +183,7 @@ private:
     template<typename Socket>
     asio::awaitable<Request> do_read(Socket &socket, asio::cancellation_slot token);
     template<typename Socket>
-    asio::awaitable<void> do_write(Socket &socket, const Response &response, asio::cancellation_slot token);
+    asio::awaitable<void> do_write(Socket &socket, Response &response, asio::cancellation_slot token);
 
     void commit_ws_route(std::string path, WsHandlers handlers) { ws_routes_[std::move(path)] = std::move(handlers); }
 
