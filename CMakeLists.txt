@@ -12,6 +12,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 option(BUILD_EXAMPLES_SERVER "Build HTTP/WS server examples" ON)
 option(BUILD_EXAMPLES_CLIENT "Build HTTP/WS client examples" ON)
 option(BUILD_BENCHMARKS "Build benchmark executables" OFF)
+option(BUILD_BENCHMARKS_WS "Build WebSocket benchmarks" OFF)
 
 include(FetchContent)
 
@@ -103,5 +104,9 @@ if(BUILD_EXAMPLES_CLIENT)
 endif()
 
 if(BUILD_BENCHMARKS)
-    add_subdirectory(benchmarks)
+    add_subdirectory(benchmarks/http)
+endif()
+
+if (BUILD_BENCHMARKS_WS)
+    add_subdirectory(benchmarks/ws)
 endif()

@@ -6,7 +6,6 @@ out/
 bin/
 lib/
 obj/
-test_uwebsockets/
 # --- CMake / Ninja / Make ---
 CMakeCache.txt
 CMakeFiles/
@@ -93,3 +92,9 @@ certs/
 *.p12
 
 /www/static
+
+/external/uWebSockets
+
+benchmarks/js/node_modules/
+benchmarks/js/npm-debug.log*
+benchmarks/js/yarn-error.log*

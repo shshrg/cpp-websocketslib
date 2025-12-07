@@ -14,7 +14,7 @@ FetchContent_MakeAvailable(cpp_httplib)
 
 # ==== Hello ====
 add_executable(bench_myserver_http
-        http/bench_myserver.cpp
+        bench_myserver.cpp
 )
 target_link_libraries(bench_myserver_http PRIVATE my_http_lib)
 set_target_properties(bench_myserver_http PROPERTIES
@@ -29,7 +29,7 @@ target_compile_definitions(bench_myserver_http PRIVATE
 
 # ==== Hello ====
 add_executable(bench_httplib
-        http/bench_httplib.cpp
+        bench_httplib.cpp
 )
 target_include_directories(bench_httplib PRIVATE
         ${cpp_httplib_SOURCE_DIR}

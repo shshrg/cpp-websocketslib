@@ -7,6 +7,7 @@ USE_OPENSSL=ON
 BUILD_EXAMPLES_SERVER=ON
 BUILD_EXAMPLES_CLIENT=ON
 BUILD_BENCHMARKS=OFF
+BUILD_BENCHMARKS_WS=OFF
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -36,9 +37,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         --bench)
             BUILD_BENCHMARKS=ON
+            BUILD_BENCHMARKS_WS=ON
             ;;
         --no-bench)
             BUILD_BENCHMARKS=OFF
+            BUILD_BENCHMARKS_WS=OFF
             ;;
         -c|--clean)
             rm -rf build-*
@@ -75,6 +78,7 @@ cmake -S . -B "$DIR" \
     -DUSE_OPENSSL="$USE_OPENSSL" \
     -DBUILD_EXAMPLES_SERVER="$BUILD_EXAMPLES_SERVER" \
     -DBUILD_EXAMPLES_CLIENT="$BUILD_EXAMPLES_CLIENT" \
-    -DBUILD_BENCHMARKS="$BUILD_BENCHMARKS"
+    -DBUILD_BENCHMARKS="$BUILD_BENCHMARKS" \
+    -DBUILD_BENCHMARKS_WS="$BUILD_BENCHMARKS_WS"
 
 cmake --build "$DIR" -j"$(nproc)"
