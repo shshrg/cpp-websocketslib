@@ -118,3 +118,10 @@ target_link_libraries(example_ws_client PRIVATE my_http_lib)
 target_compile_definitions(example_ws_client PRIVATE
         DEFAULT_CONFIG_WS_PATH="${CMAKE_SOURCE_DIR}/examples/configs/ws_basic.conf"
 )
+
+
+option(ENABLE_TESTS "Enable tests" ON)
+
+if (ENABLE_TESTS)
+    add_subdirectory(tests)
+endif ()
