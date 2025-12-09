@@ -5,9 +5,17 @@
 #include "http/utils.h"
 #include "io_helpers.h"
 #include <asio/stream_file.hpp>
+#ifdef __linux__
+#include <signal.h>
+#include <sys/sendfile.h>
+#endif
 
 void Server::start(size_t worker_threads) {
     if (work_guard_) return;
+#ifdef __linux__
+    signal(SIGPIPE, SIG_IGN);
+#endif
+
 
     // Keep io_context alive
     work_guard_.emplace(asio::make_work_guard(io_context_));
@@ -189,76 +197,160 @@ asio::awaitable<Request> Server::do_read(Socket &socket, asio::cancellation_slot
     co_return req;
 }
 
+
 template<typename Socket>
-asio::awaitable<void> Server::do_write(Socket &socket, Response &response, asio::cancellation_slot token) {
+asio::awaitable<void> Server::do_write(
+    Socket &socket,
+    Response &response,
+    asio::cancellation_slot token
+) {
     if (!response.sendfile_path.empty()) {
-        asio::stream_file file(co_await asio::this_coro::executor);
-        std::error_code ec;
-        auto open_res = file.open(response.sendfile_path.string().c_str(), asio::file_base::read_only, ec);
+        co_await write_file_response(socket, response, token);
+    } else {
+        co_await write_regular_response(socket, response, token);
+    }
+}
 
-        (void) open_res;
+template<typename Socket>
+asio::awaitable<void> Server::write_regular_response(
+    Socket &socket,
+    Response &response,
+    asio::cancellation_slot token
+) {
+    std::uintmax_t body_size = response.body.size();
+    std::string head = prepare_headers(response, body_size);
 
-        if (ec) co_return;
-
-        auto file_sz = file.size(ec);
-
-        if (ec || file_sz == static_cast<std::uintmax_t>(-1)) co_return;
-
-        response.set_header("Content-Length", std::to_string(file_sz));
-
-        std::string head = response.to_string_header();
-
+    if (body_size == 0) {
         co_await asio::async_write(
             socket,
             asio::buffer(head),
             asio::bind_cancellation_slot(token, asio::use_awaitable)
         );
-
-        std::array<char, 128 * 1024> buf{};
-        std::uintmax_t remaining = file_sz;
-
-        while (remaining > 0) {
-            size_t to_read = std::min<std::uintmax_t>(remaining, buf.size());
-
-            size_t n = co_await file.async_read_some(
-                asio::buffer(buf.data(), to_read),
-                asio::bind_cancellation_slot(token, asio::use_awaitable)
-            );
-
-            if (n == 0) break;
-
-            remaining -= n;
-
-            co_await asio::async_write(
-                socket,
-                asio::buffer(buf.data(), n),
-                asio::bind_cancellation_slot(token, asio::use_awaitable)
-            );
-        }
         co_return;
     }
 
+    std::array<asio::const_buffer, 2> bufs = {
+        asio::buffer(head),
+        asio::buffer(response.body)
+    };
 
-    if (!response.has_header("Content-Length")) {
-        response.set_header("Content-Length", std::to_string(response.body.size()));
+    co_await asio::async_write(
+        socket,
+        bufs,
+        asio::bind_cancellation_slot(token, asio::use_awaitable)
+    );
+}
+
+#ifdef __linux__
+template<typename Socket>
+asio::awaitable<bool> Server::sendfile_fast_path(
+    Socket &socket,
+    int &native_sock,
+    const std::string &path,
+    std::uintmax_t size
+) {
+
+    int file_fd = open(path.c_str(), O_RDONLY);
+    if (file_fd < 0) {
+        co_return false;
     }
 
-    std::string head = response.to_string_header();
+    off_t offset = 0;
+    std::size_t remaining = size;
 
-    if (response.body.empty()) {
-        co_await asio::async_write(
-            socket,
-            asio::buffer(head),
+    while (remaining > 0) {
+        ssize_t sent = sendfile(native_sock, file_fd, &offset, remaining);
+
+        if (sent < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                co_await socket.lowest_layer().async_wait(
+                    asio::socket_base::wait_write,
+                    asio::use_awaitable
+                );
+                continue;
+            }
+            break;
+        }
+        if (sent == 0) {
+            break;
+        }
+        remaining -= static_cast<std::size_t>(sent);
+    }
+
+    close(file_fd);
+    co_return remaining == 0;
+}
+#endif
+
+
+template<typename Socket>
+asio::awaitable<void> Server::write_file_response(
+    Socket &socket,
+    Response &response,
+    asio::cancellation_slot token
+) {
+    const auto &path = response.sendfile_path;
+
+    int native_sock = get_native_handle(socket);
+
+    if (native_sock != -1) {
+#ifdef __linux__
+        if (response.sendfile_size > 0) {
+            std::string head = prepare_headers(response, response.sendfile_size);
+
+            co_await asio::async_write(
+                socket,
+                asio::buffer(head),
+                asio::bind_cancellation_slot(token, asio::use_awaitable)
+            );
+
+
+            bool ok = co_await sendfile_fast_path(socket, native_sock, path, response.sendfile_size);
+            if (ok) {
+                co_return;
+            }
+
+            co_return;
+        }
+#endif
+    }
+
+    asio::stream_file file(co_await asio::this_coro::executor);
+    std::error_code ec;
+    file.open(path.c_str(), asio::file_base::read_only, ec);
+    if (ec) co_return;
+
+    auto file_sz = file.size(ec);
+    if (ec || file_sz == static_cast<std::uintmax_t>(-1)) co_return;
+
+    std::string head = prepare_headers(response, file_sz);
+
+    co_await asio::async_write(
+        socket,
+        asio::buffer(head),
+        asio::bind_cancellation_slot(token, asio::use_awaitable)
+    );
+
+    std::array<char, 64 * 1024> buf{};
+    std::uintmax_t remaining = file_sz;
+
+    while (remaining > 0) {
+        std::size_t to_read =
+                std::min<std::uintmax_t>(remaining, buf.size());
+
+        std::size_t n = co_await file.async_read_some(
+            asio::buffer(buf.data(), to_read),
             asio::bind_cancellation_slot(token, asio::use_awaitable)
         );
-    } else {
-        std::array<asio::const_buffer, 2> bufs = {
-            asio::buffer(head),
-            asio::buffer(response.body),
-        };
+        if (n == 0) break;
+
+        remaining -= n;
+
         co_await asio::async_write(
-            socket, bufs,
-            asio::bind_cancellation_slot(token, asio::use_awaitable));
+            socket,
+            asio::buffer(buf.data(), n),
+            asio::bind_cancellation_slot(token, asio::use_awaitable)
+        );
     }
 }
 

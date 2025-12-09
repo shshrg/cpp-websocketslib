@@ -46,21 +46,21 @@ public:
 
     explicit Server(asio::io_context &io_context, const asio::ip::address &address, unsigned short port,
                     bool use_ssl = false)
-    : io_context_(io_context),
-    acceptor_(io_context_, tcp::endpoint(address, port))
-    #ifdef USE_SSL
-        , use_ssl_(use_ssl), ssl_context_(asio::ssl::context::tls_server)
-    #else
+        : io_context_(io_context),
+          acceptor_(io_context_, tcp::endpoint(address, port))
+#ifdef USE_SSL
+          , use_ssl_(use_ssl), ssl_context_(asio::ssl::context::tls_server)
+#else
         , use_ssl_(false)
-    #endif
+#endif
     {
-    #ifdef USE_SSL
-    if (use_ssl_ && !setup_ssl())
-        throw std::runtime_error("SSL setup failed");
-    #else
-    if (use_ssl)
-        std::cerr << "WARNING: SSL requested but OpenSSL is disabled!\n";
-    #endif
+#ifdef USE_SSL
+        if (use_ssl_ && !setup_ssl())
+            throw std::runtime_error("SSL setup failed");
+#else
+        if (use_ssl)
+            std::cerr << "WARNING: SSL requested but OpenSSL is disabled!\n";
+#endif
     }
 
     // Method Interfaces
@@ -157,16 +157,17 @@ private:
             co_return co_await fn(req);
         };
     }
+
     // keep track of websockets for all connections
-    std::unordered_map<size_t, std::shared_ptr<WebSocket>> websockets_;
+    std::unordered_map<size_t, std::shared_ptr<WebSocket> > websockets_;
     std::mutex ws_mutex;
-    void register_websocket(size_t id, std::shared_ptr<WebSocket> ws)
-    {
+
+    void register_websocket(size_t id, std::shared_ptr<WebSocket> ws) {
         std::lock_guard lock(ws_mutex);
         websockets_[id] = std::move(ws);
     }
-    void remove_websocket(size_t id)
-    {
+
+    void remove_websocket(size_t id) {
         std::lock_guard lock(ws_mutex);
         websockets_.erase(id);
     }
@@ -174,6 +175,28 @@ private:
     asio::awaitable<Response> serve_static(const Request &req);
 
     asio::awaitable<Response> handle_request(const Request &request);
+
+    template<typename Socket>
+    asio::awaitable<bool> sendfile_fast_path(
+        Socket &socket,
+        int &sock_fd,
+        const std::string &path,
+        std::uintmax_t size
+    );
+    template<typename Socket>
+
+    asio::awaitable<void> write_regular_response(
+        Socket &socket,
+        Response &response,
+        asio::cancellation_slot token
+    );
+
+    template<typename Socket>
+    asio::awaitable<void> write_file_response(
+        Socket &socket,
+        Response &response,
+        asio::cancellation_slot token
+    );
 
     template<typename Socket>
     asio::awaitable<void> process_session(Socket &socket, asio::cancellation_slot token, size_t client_id);
@@ -189,18 +212,19 @@ private:
 
     template<typename Socket>
     asio::awaitable<void> process_session_ws(Socket &socket, const std::string &sec_ws_key,
-                                             const WsHandlers *handlers, asio::cancellation_slot token, size_t client_id);
+                                             const WsHandlers *handlers, asio::cancellation_slot token,
+                                             size_t client_id);
     void close_websockets();
 
     asio::io_context &io_context_;
     asio::ip::tcp::acceptor acceptor_;
 
-    #ifdef USE_SSL
-        bool use_ssl_;
-        asio::ssl::context ssl_context_;
-    #else
-        bool use_ssl_ = false;
-    #endif
+#ifdef USE_SSL
+    bool use_ssl_;
+    asio::ssl::context ssl_context_;
+#else
+    bool use_ssl_ = false;
+#endif
 
     std::optional<asio::executor_work_guard<asio::io_context::executor_type> > work_guard_;
     std::vector<std::thread> workers_;

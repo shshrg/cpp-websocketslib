@@ -5,6 +5,22 @@
 #include <string>
 #include <algorithm>
 
+
+template <typename Socket>
+int get_native_handle(Socket& socket) {
+    if constexpr (std::is_same_v<Socket, asio::ip::tcp::socket>) {
+        return socket.native_handle();
+    }
+    return -1; // Not supported for SSL
+}
+
+inline std::string prepare_headers(Response& response, std::uintmax_t body_size) {
+    if (!response.has_header("Content-Length")) {
+        response.set_header("Content-Length", std::to_string(body_size));
+    }
+    return response.to_string_header();
+}
+
 inline std::string take_front(asio::streambuf &buf, std::size_t n) {
     const auto avail = buf.size();
     n = std::min(n, avail);
