@@ -6,7 +6,7 @@
 #include "io_helpers.h"
 #include <asio/stream_file.hpp>
 #ifdef __linux__
-#include <signal.h>
+#include <csignal>
 #include <sys/sendfile.h>
 #endif
 
@@ -93,7 +93,7 @@ asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation
                                            asio::bind_cancellation_slot(token, asio::use_awaitable));
                 co_return;
             }
-            co_await process_session_ws(socket, key, handlers, token, client_id);
+            co_await process_session_ws(std::move(socket), key, handlers, token, client_id);
             co_return;
         }
 
@@ -118,13 +118,17 @@ asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation
 }
 
 template<typename Socket>
-asio::awaitable<void> Server::process_session_ws(Socket &socket,
+asio::awaitable<void> Server::process_session_ws(Socket socket,
                                                  const std::string &sec_ws_key,
                                                  const WsHandlers *handlers,
                                                  asio::cancellation_slot token,
                                                  size_t client_id) {
+    std::string accept = ws_accept_key(sec_ws_key);
+    Response resp = build_101_response(accept);
+    co_await do_write(socket, resp, token);
+
     auto ws = std::make_shared<WebSocket>(
-        std::move(socket), handlers, token, client_id);
+        std::move(socket), handlers, client_id);
 
     ws->set_server_cleanup(
         [this](size_t id) {
@@ -133,7 +137,17 @@ asio::awaitable<void> Server::process_session_ws(Socket &socket,
     );
 
     register_websocket(client_id, ws);
-    co_await ws->start(sec_ws_key);
+
+    if (token.is_connected()) {
+        std::weak_ptr<WebSocket> weak_ws = ws;
+        token.assign([weak_ws](asio::cancellation_type type) {
+            if (auto s = weak_ws.lock()) {
+                s->close_async(1001, "Cancelled by server");
+            }
+        });
+    }
+
+    co_await ws->start();
 }
 
 
@@ -249,7 +263,6 @@ asio::awaitable<bool> Server::sendfile_fast_path(
     const std::string &path,
     std::uintmax_t size
 ) {
-
     int file_fd = open(path.c_str(), O_RDONLY);
     if (file_fd < 0) {
         co_return false;
@@ -289,12 +302,12 @@ asio::awaitable<void> Server::write_file_response(
     Response &response,
     asio::cancellation_slot token
 ) {
-    const auto &path = response.sendfile_path;
+    const std::string &path = response.sendfile_path.string();
 
-    int native_sock = get_native_handle(socket);
 
-    if (native_sock != -1) {
 #ifdef __linux__
+    int native_sock = get_native_handle(socket);
+    if (native_sock != -1) {
         if (response.sendfile_size > 0) {
             std::string head = prepare_headers(response, response.sendfile_size);
 
@@ -304,7 +317,6 @@ asio::awaitable<void> Server::write_file_response(
                 asio::bind_cancellation_slot(token, asio::use_awaitable)
             );
 
-
             bool ok = co_await sendfile_fast_path(socket, native_sock, path, response.sendfile_size);
             if (ok) {
                 co_return;
@@ -312,8 +324,8 @@ asio::awaitable<void> Server::write_file_response(
 
             co_return;
         }
-#endif
     }
+#endif
 
     asio::stream_file file(co_await asio::this_coro::executor);
     std::error_code ec;

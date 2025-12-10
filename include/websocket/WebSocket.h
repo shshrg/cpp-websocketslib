@@ -43,10 +43,9 @@ using AnySocket = std::variant<TcpSocket>;
 class WebSocket : public std::enable_shared_from_this<WebSocket> {
 public:
     template<typename Socket>
-    WebSocket(Socket &&socket, const WsHandlers *handlers, asio::cancellation_slot token, size_t client_id)
+    WebSocket(Socket &&socket, const WsHandlers *handlers, size_t client_id)
         : socket_(AnySocket(std::forward<Socket>(socket))),
           client_id_(client_id),
-          slot_(token),
           write_strand_(
               asio::make_strand(
                   std::visit(
@@ -64,16 +63,8 @@ public:
     }
 
 
-    asio::awaitable<void> start(const std::string &sec_ws_key) {
-        std::string accept = ws_accept_key(sec_ws_key);
-        Response resp = build_101_response(accept);
-
-        std::string out = resp.to_string();
-        co_await async_write_any(socket_, asio::buffer(resp.to_string()), slot_);
-
-
+    asio::awaitable<void> start() {
         if (handlers_.on_open) handlers_.on_open(shared_from_this());
-
 
         co_await do_read_loop();
         co_return;
@@ -115,8 +106,11 @@ public:
     }
 
     void send_text_async(std::string payload) {
-        auto self = shared_from_this();
+        if (state_.load(std::memory_order_acquire) != WS_OPEN) {
+            return;
+        }
 
+        auto self = shared_from_this();
         asio::co_spawn(
             write_strand_,
             [self, payload = std::move(payload)]() mutable -> asio::awaitable<void> {
@@ -132,7 +126,6 @@ private:
     size_t client_id_;
 
     WsHandlers handlers_{};
-    asio::cancellation_slot slot_;
     asio::cancellation_signal signal_;
 
     asio::strand<asio::any_io_executor> write_strand_;
@@ -143,13 +136,13 @@ private:
 
     // ---------helper functions to handle different socket types----------
     template<typename SocketType, typename Buffer>
-    asio::awaitable<std::size_t> async_write_any(SocketType &st, Buffer buf, asio::cancellation_slot slot) {
+    asio::awaitable<std::size_t> async_write_any(SocketType &st, Buffer buf) {
         co_return co_await std::visit(
             [&](auto &sock) -> asio::awaitable<std::size_t> {
                 co_return co_await asio::async_write(
                     sock,
                     buf,
-                    asio::bind_cancellation_slot(slot, asio::use_awaitable)
+                    asio::use_awaitable
                 );
             },
             st
@@ -159,15 +152,14 @@ private:
     template<typename VariantSocket, typename MutableBuffer>
     asio::awaitable<std::size_t> async_read_any(
         VariantSocket &st,
-        const MutableBuffer &buf,
-        asio::cancellation_slot slot
+        const MutableBuffer &buf
     ) {
         co_return co_await std::visit(
             [&](auto &sock) -> asio::awaitable<std::size_t> {
                 co_return co_await asio::async_read(
                     sock,
                     buf,
-                    asio::bind_cancellation_slot(slot, asio::use_awaitable)
+                    asio::use_awaitable
                 );
             },
             st
@@ -176,6 +168,10 @@ private:
 
     // --------------------functions from ws_helpers-----------------------
     asio::awaitable<void> send_text(const std::string &payload) {
+        if (state_.load(std::memory_order_acquire) != WS_OPEN) {
+            co_return;
+        }
+
         WsFrame out{};
         out.fin = true;
         out.opcode = WS_TEXT;
@@ -200,7 +196,7 @@ private:
     }
 
     asio::awaitable<void> do_write(std::vector<uint8_t> const &bytes) {
-        co_await async_write_any(socket_, asio::buffer(bytes), slot_);
+        co_await async_write_any(socket_, asio::buffer(bytes));
         co_return;
     }
 
@@ -214,8 +210,7 @@ private:
         while (state_.load(std::memory_order_acquire) == WS_OPEN) {
             WsFrame f{};
             co_await async_read_any(socket_,
-                                    asio::buffer(header.data(), 2),
-                                    slot_);
+                                    asio::buffer(header.data(), 2));
             const uint8_t b0 = header[0];
             const uint8_t b1 = header[1];
 
@@ -241,8 +236,7 @@ private:
                 co_await async_read_any(
                     socket_,
                     asio::buffer(header.data() + header_bytes,
-                                 total_header_bytes - header_bytes),
-                    slot_
+                                 total_header_bytes - header_bytes)
                 );
             }
 
@@ -283,8 +277,7 @@ private:
                 co_await async_read_any(
                     socket_,
                     asio::buffer(f.payload_data.data(),
-                                 f.payload_data.size()),
-                    slot_
+                                 f.payload_data.size())
                 );
             }
 
