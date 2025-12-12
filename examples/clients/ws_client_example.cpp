@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
         ServerConfig cfg = load_config(config_path);
 
         std::string host = cfg.address.empty() ? "127.0.0.1" : cfg.address;
-        std::string ws_path = "/chat";
+        std::string ws_path = "/ws-video";
         int port = cfg.port;
         std::string proto = cfg.use_ssl ? "wss" : "ws";
         std::cout << "Connecting to " << proto << "://" << host << ":" << port << ws_path << "...\n";
@@ -51,9 +51,10 @@ int main(int argc, char* argv[]) {
 
         client.send_text("Hello from client!");
 
-        std::thread reader([&client]() {
-            client.receive_loop();
-        });
+        // std::thread reader([&client]() {
+        //     client.receive_loop();
+        // });
+        client.receive_loop();
 
         for (;;) {
             if (client.stopped) break;
@@ -64,7 +65,7 @@ int main(int argc, char* argv[]) {
             client.send_text(line);
         }
 
-        reader.join();
+        // reader.join();
         return 0;
 
     } catch (const std::exception& e) {

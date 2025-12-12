@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WebSocket Video Stream</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #222; color: #fff; }
+        #container { margin-top: 20px; }
+        img { border: 2px solid #555; max-width: 100%; height: auto; }
+        #stats { margin-top: 10px; color: #aaa; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+
+<h1>Live Stream</h1>
+<div id="container">
+    <img id="video-frame" src="" alt="Waiting for stream..." width="640" />
+</div>
+
+<div style="margin-bottom: 15px;">
+    <label for="video-select">Choose Video:</label>
+    <select id="video-select">
+        <option value="winter">Winter</option>
+        <option value="cat">Cat</option>
+        <option value="car">Car</option>
+    </select>
+</div>
+
+<script>
+    // Adjust port if necessary.
+    // If opening file directly (file://), assume localhost:9001.
+    // If served by server, use current host/port.
+    const wsUrl = (location.protocol === 'file:')
+        ? "ws://127.0.0.1:9001/ws-video"
+        : "ws://" + location.hostname + ":" + location.port + "/ws-video";
+
+    const ws = new WebSocket(wsUrl);
+
+    // IMPORTANT: Tell browser to treat data as raw binary, not text
+    ws.binaryType = "arraybuffer";
+
+    const img = document.getElementById("video-frame");
+    const stats = document.getElementById("stats");
+    let previousUrl = null;
+
+    const selector = document.getElementById("video-select");
+
+    ws.onopen = () => {
+        console.log("Connected to " + wsUrl);
+        ws.send(selector.value);
+    };
+
+    selector.onchange = () => {
+        if (ws.readyState === WebSocket.OPEN) {
+            console.log("Requesting: " + selector.value);
+            ws.send(selector.value);
+        }
+    };
+
+    ws.onmessage = (event) => {
+        const arrayBuffer = event.data;
+
+        // Protocol: [4 bytes FrameID][8 bytes Timestamp][JPEG Bytes...]
+        // Total header size = 12 bytes
+        if (arrayBuffer.byteLength <= 12) return;
+
+        // 1. Parse Header (DataView to handle Endianness)
+        const view = new DataView(arrayBuffer);
+        const frameId = view.getUint32(0, false); // Big Endian
+        // JS doesn't support uint64 perfectly in DataView without BigInt,
+        // but for display we mainly care about the image.
+
+        // 2. Extract JPEG Data (Slice off the first 12 bytes)
+        const jpegData = arrayBuffer.slice(12);
+
+        // 3. Create a Blob from the JPEG bytes
+        const blob = new Blob([jpegData], { type: "image/jpeg" });
+
+        // 4. Create a URL for the Blob and set it as image source
+        const newUrl = URL.createObjectURL(blob);
+
+        // Memory Management: Revoke the previous URL to avoid memory leaks!
+        if (previousUrl) {
+            URL.revokeObjectURL(previousUrl);
+        }
+        previousUrl = newUrl;
+
+        img.src = newUrl;
+    };
+
+    ws.onclose = () => {
+        console.log("Disconnected");
+        stats.textContent = "Disconnected";
+    };
+
+    ws.onerror = (err) => {
+        console.error("WS Error", err);
+    };
+</script>
+
+</body>
+</html>

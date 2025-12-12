@@ -20,28 +20,30 @@ struct WsFrame {
 inline std::vector<uint8_t> write_frame(const WsFrame &frame) {
     std::vector<uint8_t> bytes;
 
-    uint8_t byte0 = (frame.fin << 7) |
-                    (frame.rsv1 << 6) |
-                    (frame.rsv2 << 5) |
-                    (frame.rsv3 << 4) |
-                    (frame.opcode & 0x0F);
+    const uint64_t payload_len = frame.payload_data.size();
+
+    uint8_t byte0 = frame.fin << 7 |
+                    frame.rsv1 << 6 |
+                    frame.rsv2 << 5 |
+                    frame.rsv3 << 4 |
+                    frame.opcode & 0x0F;
     bytes.push_back(byte0);
 
-    uint8_t byte1 = (frame.mask << 7);
+    uint8_t byte1 = frame.mask << 7;
 
-    if (frame.payload_length <= 125) {
-        byte1 |= static_cast<uint8_t>(frame.payload_length);
+    if (payload_len <= 125) {
+        byte1 |= static_cast<uint8_t>(payload_len);
         bytes.push_back(byte1);
-    } else if (frame.payload_length <= 0xFFFF) {
+    } else if (payload_len <= 0xFFFF) {
         byte1 |= 126;
         bytes.push_back(byte1);
-        bytes.push_back((frame.payload_length >> 8) & 0xFF);
-        bytes.push_back(frame.payload_length & 0xFF);
+        bytes.push_back((payload_len >> 8) & 0xFF);
+        bytes.push_back(payload_len & 0xFF);
     } else {
         byte1 |= 127;
         bytes.push_back(byte1);
         for (int i = 7; i >= 0; --i) {
-            bytes.push_back((frame.payload_length >> (8 * i)) & 0xFF);
+            bytes.push_back((payload_len >> (8 * i)) & 0xFF);
         }
     }
 
@@ -52,15 +54,18 @@ inline std::vector<uint8_t> write_frame(const WsFrame &frame) {
         bytes.push_back(frame.masking_key & 0xFF);
     }
 
+    bytes.reserve(bytes.size() + payload_len);
+
     for (size_t i = 0; i < frame.payload_data.size(); ++i) {
         auto byte = static_cast<uint8_t>(frame.payload_data[i]);
         if (frame.mask) {
-            byte ^= (frame.masking_key >> ((3 - (i % 4)) * 8)) & 0xFF;
+            byte ^= frame.masking_key >> ((3 - i % 4) * 8) & 0xFF;
         }
         bytes.push_back(byte);
     }
 
     return bytes;
 }
+
 
 #endif //WEBSOCKETLIB_WSFRAME_H

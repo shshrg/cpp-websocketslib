@@ -8,7 +8,6 @@
 const WebSocket = require("ws");
 
 if (process.argv.length < 3) {
-    console.error("Usage: node bench_ws_echo.js ws://host:port/path [msgBytes] [durationSec] [concurrency]");
     process.exit(1);
 }
 
@@ -21,8 +20,7 @@ const payload = "x".repeat(msgBytes);
 
 let totalRequests = 0;
 let errors = 0;
-const latencies = []; // ms
-
+const latencies = [];
 let stop = false;
 
 function nowMs() {
@@ -38,13 +36,11 @@ async function runClient(id) {
         let sendTimestamp = 0;
 
         ws.on("open", () => {
-            // Kick off first message
             send();
         });
 
         ws.on("message", () => {
             if (!waitingForEcho) {
-                // Should not happen logically, but just ignore
                 return;
             }
             const rtt = nowMs() - sendTimestamp;
@@ -61,7 +57,6 @@ async function runClient(id) {
 
         ws.on("error", (err) => {
             errors++;
-            // console.error(`[client ${id}] error:`, err.message);
         });
 
         ws.on("close", () => {
@@ -78,51 +73,24 @@ async function runClient(id) {
     });
 }
 
-function percentile(sorted, p) {
-    if (sorted.length === 0) return NaN;
-    const idx = (sorted.length - 1) * p;
-    const lower = Math.floor(idx);
-    const upper = Math.ceil(idx);
-    if (lower === upper) return sorted[lower];
-    const w = idx - lower;
-    return sorted[lower] * (1 - w) + sorted[upper] * w;
-}
+const clients = [];
+for (let i = 0; i < concurrency; ++i) clients.push(runClient());
+
+setTimeout(() => { stop = true; }, durationSec * 1000);
 
 (async () => {
-    console.log(`*** WS echo benchmark ***`);
-    console.log(`URL:         ${url}`);
-    console.log(`Payload:     ${msgBytes} bytes`);
-    console.log(`Duration:    ${durationSec} s`);
-    console.log(`Concurrency: ${concurrency}`);
-
-    const clients = [];
-    for (let i = 0; i < concurrency; ++i) {
-        clients.push(runClient(i));
-    }
-
-    setTimeout(() => {
-        stop = true;
-    }, durationSec * 1000);
-
     const start = nowMs();
     await Promise.all(clients);
     const elapsed = (nowMs() - start) / 1000;
 
     const sorted = latencies.slice().sort((a, b) => a - b);
+    const p = (x) => sorted.length > 0 ? sorted[Math.floor((sorted.length - 1) * x)] : 0;
+    const rps = totalRequests / elapsed;
 
-    const p50 = percentile(sorted, 0.5);
-    const p90 = percentile(sorted, 0.9);
-    const p99 = percentile(sorted, 0.99);
-
-    console.log("\nResults:");
-    console.log(`Requests: ${totalRequests}`);
-    console.log(`Errors:   ${errors}`);
-    console.log(`RPS:      ${(totalRequests / elapsed).toFixed(1)}`);
-    if (sorted.length > 0) {
-        console.log(`p50:      ${p50.toFixed(2)} ms`);
-        console.log(`p90:      ${p90.toFixed(2)} ms`);
-        console.log(`p99:      ${p99.toFixed(2)} ms`);
-    } else {
-        console.log(`No successful requests recorded.`);
-    }
+    console.log(totalRequests);
+    console.log(errors);
+    console.log(rps.toFixed(1));
+    console.log(p(0.5).toFixed(2));
+    console.log(p(0.9).toFixed(2));
+    console.log(p(0.99).toFixed(2));
 })();

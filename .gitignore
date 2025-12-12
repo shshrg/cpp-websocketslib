@@ -98,3 +98,5 @@ certs/
 benchmarks/js/node_modules/
 benchmarks/js/npm-debug.log*
 benchmarks/js/yarn-error.log*
+/frames/
+/myenv/

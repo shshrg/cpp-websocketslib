@@ -13,10 +13,12 @@ const payload = Buffer.alloc(sizeKB * 1024, "A");
 let completed = 0;
 let errors = 0;
 let lat = [];
+let running = true;
 
 const agent = new http.Agent({ keepAlive });
 
 function send_one() {
+    if (!running) return;
     const start = process.hrtime.bigint();
 
     const req = http.request(
@@ -51,26 +53,20 @@ function send_one() {
     req.end();
 }
 
-// Start worker clients
 for (let i = 0; i < concurrency; i++) send_one();
 
 setTimeout(() => {
-    // results
+    running = false;
     lat.sort((a, b) => a - b);
-    if (lat.length === 0) {
-        console.log("No completed requests in the time window – probably file too big or duration too short.");
-        process.exit(0);
-    }
-    const p = (x) => lat[Math.floor(lat.length * x)];
+    const p = (x) => lat.length > 0 ? lat[Math.floor(lat.length * x)] : 0;
+    const rps = completed / duration;
 
-    console.log("*** POST /echo Benchmark ***");
-    console.log(`Payload: ${sizeKB} KB`);
-    console.log(`Requests: ${completed}`);
-    console.log(`Errors: ${errors}`);
-    console.log(`RPS: ${(completed / duration).toFixed(1)}`);
-    console.log(`p50: ${p(0.5).toFixed(2)}ms`);
-    console.log(`p90: ${p(0.9).toFixed(2)}ms`);
-    console.log(`p99: ${p(0.99).toFixed(2)}ms`);
+    console.log(completed);
+    console.log(errors);
+    console.log(rps.toFixed(1));
+    console.log(p(0.5).toFixed(2));
+    console.log(p(0.9).toFixed(2));
+    console.log(p(0.99).toFixed(2));
 
     process.exit(0);
 }, duration * 1000);

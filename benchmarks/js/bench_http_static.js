@@ -4,23 +4,22 @@
 
 const http = require("http");
 
-if (process.argv.length < 6) {
-    console.log("Usage: node bench_static.js <url> <path> <duration> <concurrency>");
-    process.exit(1);
-}
+if (process.argv.length < 6) process.exit(1);
 
 const base = new URL(process.argv[2]);
 const path = process.argv[3];
 const duration = Number(process.argv[4]);
 const concurrency = Number(process.argv[5]);
 
-const agent = new http.Agent({ keepAlive: false });
+const agent = new http.Agent({keepAlive: false});
 
 let completed = 0;
 let errors = 0;
 let lat = [];
+let running = true;
 
 function oneRequest() {
+    if (!running) return;
     const start = process.hrtime.bigint();
 
     const req = http.request(
@@ -32,7 +31,8 @@ function oneRequest() {
             agent,
         },
         (res) => {
-            res.on("data", () => {});
+            res.on("data", () => {
+            });
             res.on("end", () => {
                 const end = process.hrtime.bigint();
                 lat.push(Number(end - start) / 1e6);
@@ -54,22 +54,17 @@ function oneRequest() {
 for (let i = 0; i < concurrency; i++) oneRequest();
 
 setTimeout(() => {
-    console.log("\nBenchmark results:");
-    console.log(`Requests: ${completed}`);
-    console.log(`Errors:    ${errors}`);
-    console.log(`RPS:       ${(completed / duration).toFixed(1)}`);
-
+    running = false;
     lat.sort((a, b) => a - b);
+    const p = (x) => lat.length > 0 ? lat[Math.floor((lat.length - 1) * x)] : 0;
+    const rps = completed / duration;
 
-    if (lat.length === 0) {
-        console.log("No completed requests in the time window – probably file too big or duration too short.");
-        process.exit(0);
-    }
-    const p = (x) => lat[Math.floor((lat.length - 1) * x)];
-
-    console.log(`p50: ${p(0.5).toFixed(2)} ms`);
-    console.log(`p90: ${p(0.9).toFixed(2)} ms`);
-    console.log(`p99: ${p(0.99).toFixed(2)} ms`);
+    console.log(completed);
+    console.log(errors);
+    console.log(rps.toFixed(1));
+    console.log(p(0.5).toFixed(2));
+    console.log(p(0.9).toFixed(2));
+    console.log(p(0.99).toFixed(2));
 
     process.exit(0);
 }, duration * 1000);

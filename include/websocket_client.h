@@ -11,6 +11,18 @@
 #include <vector>
 #include <atomic>
 
+struct WsInFrame {
+    uint8_t opcode = 0;
+    bool fin = true;
+    std::vector<uint8_t> payload;
+};
+
+struct WsMessage {
+    uint8_t opcode;
+    std::vector<uint8_t> payload;
+};
+
+
 class WebSocketClient {
 public:
     explicit WebSocketClient(bool use_ssl = false);
@@ -36,6 +48,13 @@ private:
     std::string generate_key();
     std::string read_http_headers();
     void make_frame_text(const std::string& msg, std::vector<uint8_t>& out);
-    std::string read_frame_text();
+
+    WsInFrame read_frame();
+    // void show_jpeg_frame(const uint8_t* data, size_t size);
+    WsMessage read_message();
+
+    bool assembling_ = false;
+    uint8_t assembling_opcode_ = 0;
+    std::vector<uint8_t> assembling_buf_;
 };
 #endif //WEBSOCKETLIB_WEBSOCKET_CLIENT_H
