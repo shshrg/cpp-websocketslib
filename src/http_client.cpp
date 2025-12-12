@@ -88,6 +88,7 @@ std::string HttpClient::read_response() {
     std::string response;
 
     std::error_code ec;
+
     if (use_ssl_) {
 #ifdef USE_SSL
         asio::read_until(ssl_socket_, buf, "\r\n\r\n", ec);
@@ -98,27 +99,28 @@ std::string HttpClient::read_response() {
         asio::read_until(socket_, buf, "\r\n\r\n", ec);
     }
 
-    if (ec == asio::error::eof
+    if (ec && ec != asio::error::eof
 #ifdef USE_SSL
-        || (use_ssl_ && ec == asio::ssl::error::stream_truncated)
+        && ec != asio::ssl::error::stream_truncated
 #endif
     ) {
-        std::cout << "[CLIENT] Connection closed by server.\n";
-        stopped = true;
-        return "";
-    }
-    if (ec) {
-        std::cerr << "[CLIENT] Error: " << ec.message() << std::endl;
+        std::cerr << "[CLIENT] Error header read: " << ec.message() << std::endl;
         stopped = true;
         return "";
     }
 
     std::istream is(&buf);
     std::string line;
+    std::string headers;
+
     while (std::getline(is, line) && line != "\r") {
-        response += line + "\n";
+        headers += line + "\n";
     }
 
+    response = headers;
+
+    std::string leftover(std::istreambuf_iterator<char>(is), {});
+    response += leftover;
     std::array<char, 8192> tmp{};
     for (;;) {
         std::error_code ec_body;
@@ -141,18 +143,17 @@ std::string HttpClient::read_response() {
 #ifdef USE_SSL
             || (use_ssl_ && ec_body == asio::ssl::error::stream_truncated)
 #endif
-            ) {
-            std::cout << "[CLIENT] Connection closed by server.\n";
-            stopped = true;
+        ) {
             break;
         }
 
         if (ec_body) {
-            std::cerr << "[CLIENT] Error: " << ec_body.message() << std::endl;
+            std::cerr << "[CLIENT] Error body read: " << ec_body.message() << std::endl;
             stopped = true;
             break;
         }
     }
+    stopped = true;
 
     return response;
 }

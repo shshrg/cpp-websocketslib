@@ -21,6 +21,7 @@ public:
     void send_text(const std::string& msg);
     void receive_loop();
     std::atomic<bool> stopped;
+    std::string read_frame_text();
 
 private:
     asio::io_context internal_io_;
@@ -36,6 +37,5 @@ private:
     std::string generate_key();
     std::string read_http_headers();
     void make_frame_text(const std::string& msg, std::vector<uint8_t>& out);
-    std::string read_frame_text();
 };
 #endif //WEBSOCKETLIB_WEBSOCKET_CLIENT_H

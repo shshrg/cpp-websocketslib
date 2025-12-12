@@ -8,6 +8,7 @@ BUILD_EXAMPLES_SERVER=ON
 BUILD_EXAMPLES_CLIENT=ON
 BUILD_BENCHMARKS=OFF
 BUILD_BENCHMARKS_WS=OFF
+ENABLE_TESTS=ON
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -43,6 +44,12 @@ while [[ $# -gt 0 ]]; do
             BUILD_BENCHMARKS=OFF
             BUILD_BENCHMARKS_WS=OFF
             ;;
+        --tests)
+            ENABLE_TESTS=ON
+            ;;
+        --no-tests)
+            ENABLE_TESTS=OFF
+            ;;
         -c|--clean)
             rm -rf build-*
             exit 0
@@ -60,6 +67,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-examples-cl       Do not build client examples"
             echo "  --bench             Build benchmarks"
             echo "  --no-bench          Do not build benchmarks (default)"
+            echo "  --tests             Build tests (default)"
+            echo "  --no-tests          Do not build tests"
             echo "  -c, --clean         Remove build directories"
             echo "  -h, --help          Show this help"
             exit 0
@@ -79,6 +88,7 @@ cmake -S . -B "$DIR" \
     -DBUILD_EXAMPLES_SERVER="$BUILD_EXAMPLES_SERVER" \
     -DBUILD_EXAMPLES_CLIENT="$BUILD_EXAMPLES_CLIENT" \
     -DBUILD_BENCHMARKS="$BUILD_BENCHMARKS" \
-    -DBUILD_BENCHMARKS_WS="$BUILD_BENCHMARKS_WS"
+    -DBUILD_BENCHMARKS_WS="$BUILD_BENCHMARKS_WS" \
+    -DENABLE_TESTS="$ENABLE_TESTS"
 
 cmake --build "$DIR" -j"$(nproc)"
