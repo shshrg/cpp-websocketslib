@@ -1,4 +1,5 @@
 // benchmarks/http/bench_httplib_hello.cpp
+#define _WIN32_WINNT 0x0A00
 #include <iostream>
 #include "httplib.h"  // from external/httplib.h
 

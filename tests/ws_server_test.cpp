@@ -8,7 +8,7 @@ ServerConfig cfg;
 void init_ws(WebSocketClient& client, const std::string& path) {
 #ifdef USE_SSL
     if (cfg.use_ssl && !cfg.ssl_cert_file.empty())
-        client.set_verify_cert_file(cfg.ssl_cert_file);
+        client.set_verify_cert_file(cfg.ssl_cert_file.string());
 #endif
 
     std::string host = cfg.address.empty() ? "127.0.0.1" : cfg.address;

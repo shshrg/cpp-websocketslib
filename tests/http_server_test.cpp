@@ -13,7 +13,7 @@ ServerConfig cfg;
 HttpClient& make_client(HttpClient& client) {
 #ifdef USE_SSL
     if (cfg.use_ssl && !cfg.ssl_cert_file.empty()) {
-        client.set_verify_cert_file(cfg.ssl_cert_file);
+        client.set_verify_cert_file(cfg.ssl_cert_file.string());
     }
 #endif
 
@@ -325,7 +325,7 @@ TEST(HTTP_tests, SSL_Connection) {
     try {
         HttpClient client(cfg.use_ssl);
         if (!cfg.ssl_cert_file.empty()) {
-            client.set_verify_cert_file(cfg.ssl_cert_file);
+            client.set_verify_cert_file(cfg.ssl_cert_file.string());
         }
 
         make_client(client); // connect to server
@@ -361,7 +361,7 @@ TEST(HTTP_tests, SSL_Invalid_Cert) {
     try {
         HttpClient client(cfg.use_ssl);
         client.set_verify_cert_file("invalid_cert.pem");
-        client.set_verify_cert_file(cfg.ssl_cert_file);
+        client.set_verify_cert_file(cfg.ssl_cert_file.string());
 
         make_client(client);
         FAIL() << "Expected SSL verification to fail";
@@ -392,7 +392,7 @@ TEST(HTTP_tests, SSL_Large_Payload) {
 
     HttpClient client(cfg.use_ssl);
     if (!cfg.ssl_cert_file.empty()) {
-        client.set_verify_cert_file(cfg.ssl_cert_file);
+        client.set_verify_cert_file(cfg.ssl_cert_file.string());
     }
     make_client(client);
 

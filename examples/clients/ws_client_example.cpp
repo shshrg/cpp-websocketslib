@@ -44,7 +44,7 @@ int main(int argc, char* argv[]) {
         WebSocketClient client(cfg.use_ssl);
 #ifdef USE_SSL
         if (cfg.use_ssl && !cfg.ssl_cert_file.empty()) {
-            client.set_verify_cert_file(cfg.ssl_cert_file);
+            client.set_verify_cert_file(cfg.ssl_cert_file.string());
         }
 #endif
         client.connect(host, std::to_string(cfg.port), ws_path);

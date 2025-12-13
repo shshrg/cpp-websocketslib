@@ -179,7 +179,7 @@ int main() {
 
         server.MountStatic("/videos", "./www");
 
-        std::size_t threads = 8;
+        std::size_t threads = 1;
 
         server.start(threads);
         std::cout << "[myserver] WS echo listening on ws://0.0.0.0:"
