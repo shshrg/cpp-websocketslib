@@ -1,33 +1,9 @@
 #include "websocket_client.h"
+#include "websocket/WebSocket.h"
 #include <iostream>
 #include <random>
 #include <array>
 
-#include <cstdint>
-#include <chrono>
-// #include <opencv2/opencv.hpp>
-
-// inline uint32_t read_u32_be(const uint8_t *p) {
-//     return (uint32_t(p[0]) << 24) |
-//            (uint32_t(p[1]) << 16) |
-//            (uint32_t(p[2]) << 8) |
-//            uint32_t(p[3]);
-// }
-//
-// inline uint64_t read_u64_be(const uint8_t *p) {
-//     uint64_t v = 0;
-//     for (int i = 0; i < 8; ++i) v = (v << 8) | uint64_t(p[i]);
-//     return v;
-// }
-//
-// inline uint64_t now_steady_us() {
-//     using namespace std::chrono;
-//     uint64_t ts_us = duration_cast<microseconds>(
-//         system_clock::now().time_since_epoch()
-//     ).count();
-//
-//     return ts_us;
-// }
 
 WebSocketClient::WebSocketClient(bool use_ssl)
     : use_ssl_(use_ssl), stopped(false)
@@ -115,32 +91,6 @@ void WebSocketClient::receive_loop() {
                 std::cout << "[WS CLIENT] Text: " << msg << "\n";
             }
             else if (m.opcode == 0x2) {
-                // if (m.payload.size() < 12) {
-                //     std::cout << "BAD PACKET: size=" << m.payload.size() << "\n";
-                //     continue;
-                // }
-                //
-                // uint32_t frame_id = read_u32_be(m.payload.data());
-                // static uint32_t expected = 1;
-                // if (frame_id != expected) {
-                //     std::cout << "DROP/REORDER: expected " << expected << " got " << frame_id << "\n";
-                //     expected = frame_id;
-                // }
-                // expected++;
-                // uint64_t send_ts_us = read_u64_be(m.payload.data() + 4);
-                //
-                // uint64_t now_us = now_steady_us();
-                // uint64_t one_way_us = now_us - send_ts_us;
-                //
-                // const uint8_t* jpg = m.payload.data() + 12;
-                // size_t jpg_size = m.payload.size() - 12;
-
-                // std::cout << "[WS CLIENT] Frame " << frame_id
-                //           << " jpeg=" << jpg_size
-                //           << " one_way_us=" << one_way_us << "\n";
-
-                // visualize (next section)
-                // show_jpeg_frame(jpg, jpg_size);
 
             }
         } catch (const std::exception &e) {
@@ -282,13 +232,6 @@ WsInFrame WebSocketClient::read_frame() {
         throw std::runtime_error("RSV bits set (extensions not supported)");
     }
 
-    // std::cout << "[DBG] hdr0=0x" << std::hex << int(header[0])
-    //       << " hdr1=0x" << int(header[1]) << std::dec
-    //       << " fin=" << f.fin
-    //       << " opcode=0x" << std::hex << int(f.opcode) << std::dec
-    //       << " masked=" << masked
-    //       << " len7=" << len
-    //       << "\n";
 
     switch (f.opcode) {
         case 0x0: case 0x1: case 0x2: case 0x8: case 0x9: case 0xA:
@@ -331,29 +274,12 @@ WsInFrame WebSocketClient::read_frame() {
 }
 
 
-// void WebSocketClient::show_jpeg_frame(const uint8_t* data, size_t size) {
-//     cv::Mat buf(1, static_cast<int>(size), CV_8UC1, const_cast<uint8_t*>(data));
-//     cv::Mat img = cv::imdecode(buf, cv::IMREAD_COLOR);
-//     if (img.empty()) return;
-//
-//     cv::Mat resized_img;
-//     double scale_factor = 0.25;
-//     cv::resize(img, resized_img, cv::Size(),
-//                 scale_factor, scale_factor, cv::INTER_AREA);
-//
-//     cv::imshow("WS Video", resized_img);
-//     cv::waitKey(1);
-// }
-
 WsMessage WebSocketClient::read_message() {
     for (;;) {
-        WsInFrame f = read_frame(); // low-level: reads ONE frame (maybe fragment)
+        WsInFrame f = read_frame();
 
-        // --- Control frames (can be interleaved) ---
         if (f.opcode == 0x8) throw std::runtime_error("Server closed connection");
         if (f.opcode == 0x9) {
-            // Ping -> Pong with same payload (optional but recommended)
-            // send_pong(f.payload);   // implement or ignore if your server doesn’t ping
             continue;
         }
         if (f.opcode == 0xA) {
@@ -361,11 +287,8 @@ WsMessage WebSocketClient::read_message() {
             continue;
         }
 
-        // --- Data frames: TEXT/BINARY/CONT ---
         if (!assembling_) {
-            // Start of a new message
             if (f.opcode == 0x0) {
-                // stray continuation; ignore/resync
                 continue;
             }
             if (f.opcode != 0x1 && f.opcode != 0x2) {
@@ -394,5 +317,54 @@ WsMessage WebSocketClient::read_message() {
             assembling_ = false;
             return WsMessage{assembling_opcode_, std::move(assembling_buf_)};
         }
+    }
+}
+
+void WebSocketClient::send_binary(const std::vector<uint8_t> &data) {
+    if (stopped) return;
+    WsFrame out{};
+    out.fin = true;
+    out.opcode = 0x2;
+    out.mask = true;
+    out.payload_data.assign(reinterpret_cast<const char*>(data.data()), data.size());
+    out.payload_length = out.payload_data.size();
+
+    std::random_device rd;
+    out.masking_key = (uint32_t(rd()) << 24) | (uint32_t(rd()) << 16) | (uint32_t(rd()) << 8) | rd();
+
+    std::vector<uint8_t> bytes = write_frame(out);
+
+    if (use_ssl_) {
+#ifdef USE_SSL
+        asio::write(ssl_socket_, asio::buffer(bytes));
+#endif
+    } else {
+        asio::write(socket_, asio::buffer(bytes));
+    }
+}
+
+void WebSocketClient::send_close(uint16_t code) {
+    if (stopped) return;
+    WsFrame out{};
+    out.fin = true;
+    out.opcode = 0x8;
+    out.mask = true;
+
+    out.payload_data.resize(2);
+    out.payload_data[0] = (code >> 8) & 0xFF;
+    out.payload_data[1] = code & 0xFF;
+    out.payload_length = 2;
+
+    std::random_device rd;
+    out.masking_key = (uint32_t(rd()) << 24) | (uint32_t(rd()) << 16) | (uint32_t(rd()) << 8) | rd();
+
+    std::vector<uint8_t> bytes = write_frame(out);
+
+    if (use_ssl_) {
+#ifdef USE_SSL
+        asio::write(ssl_socket_, asio::buffer(bytes));
+#endif
+    } else {
+        asio::write(socket_, asio::buffer(bytes));
     }
 }

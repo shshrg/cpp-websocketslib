@@ -9,7 +9,6 @@ def run_bench(cmd):
         lines = result.stdout.strip().split('\n')
 
         # Taking the last 6 lines ensures we ignore any potential "[myserver]..."
-        # debug logs if you accidently left them, though the JS shouldn't print any.
         lines = lines[-6:]
 
         if len(lines) < 6:

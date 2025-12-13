@@ -126,3 +126,129 @@ TEST(WS_tests, Invalid_Route_Handshake_Fails) {
     io.stop();
     thr.join();
 }
+
+TEST(WS_tests, Binary_Echo) {
+    asio::io_context io;
+    auto address = asio::ip::make_address(cfg.address);
+    Server server(io, address, cfg.port, cfg.use_ssl);
+
+    server.WebSocketRouter("/binary")
+        .on_message([](auto const& ws, std::string_view msg) {
+            std::vector<uint8_t> bin(msg.begin(), msg.end());
+            ws->send_binary_async(std::move(bin));
+        });
+
+    server.start(cfg.threads);
+    std::thread thr([&](){ io.run(); });
+
+    WebSocketClient client(cfg.use_ssl);
+    init_ws(client, "/binary");
+
+    std::vector<uint8_t> sent_data = {0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0xFF};
+    client.send_binary(sent_data);
+
+    WsInFrame f = client.read_frame();
+
+    EXPECT_EQ(f.opcode, 0x2);
+    EXPECT_EQ(f.payload, sent_data);
+
+    server.stop();
+    io.stop();
+    thr.join();
+}
+
+
+TEST(WS_tests, Rapid_Fire_Queueing) {
+    asio::io_context io;
+    auto address = asio::ip::make_address(cfg.address);
+    Server server(io, address, cfg.port, cfg.use_ssl);
+
+    server.WebSocketRouter("/echo")
+        .on_message([](auto const& ws, std::string_view msg) {
+            ws->send_text_async(std::string(msg));
+        });
+
+    server.start(cfg.threads);
+    std::thread thr([&](){ io.run(); });
+
+    WebSocketClient client(cfg.use_ssl);
+    init_ws(client, "/echo");
+
+    const int MSG_COUNT = 100;
+
+    for (int i = 0; i < MSG_COUNT; ++i) {
+        client.send_text("msg_" + std::to_string(i));
+    }
+
+    for (int i = 0; i < MSG_COUNT; ++i) {
+        WsInFrame f = client.read_frame();
+        EXPECT_EQ(f.opcode, 0x1);
+
+        std::string expected = "msg_" + std::to_string(i);
+        std::string actual(f.payload.begin(), f.payload.end());
+        EXPECT_EQ(actual, expected);
+    }
+
+    server.stop();
+    io.stop();
+    thr.join();
+}
+
+TEST(WS_tests, Large_Payload_Echo) {
+    asio::io_context io;
+    auto address = asio::ip::make_address(cfg.address);
+    Server server(io, address, cfg.port, cfg.use_ssl);
+
+    server.WebSocketRouter("/echo")
+        .on_message([](auto const& ws, std::string_view msg) {
+            ws->send_text_async(std::string(msg));
+        });
+
+    server.start(cfg.threads);
+    std::thread thr([&](){ io.run(); });
+
+    WebSocketClient client(cfg.use_ssl);
+    init_ws(client, "/echo");
+
+    std::string large_msg(2 * 1024 * 1024, 'X');
+
+    client.send_text(large_msg);
+
+    WsInFrame f = client.read_frame();
+
+    EXPECT_EQ(f.opcode, 0x1);
+    EXPECT_EQ(f.payload.size(), large_msg.size());
+
+    server.stop();
+    io.stop();
+    thr.join();
+}
+
+TEST(WS_tests, Server_Initiated_Close) {
+    asio::io_context io;
+    auto address = asio::ip::make_address(cfg.address);
+    Server server(io, address, cfg.port, cfg.use_ssl);
+
+    server.WebSocketRouter("/closer")
+        .on_open([](auto const& ws) {
+            ws->close_async(4000, "Test Close");
+        });
+
+    server.start(cfg.threads);
+    std::thread thr([&](){ io.run(); });
+
+    WebSocketClient client(cfg.use_ssl);
+    init_ws(client, "/closer");
+
+    try {
+        client.read_frame();
+        FAIL() << "Should have received close frame";
+    } catch (const std::exception& e) {
+        std::string err = e.what();
+        EXPECT_EQ(err, "Server closed connection");
+    }
+
+    server.stop();
+    io.stop();
+    thr.join();
+}

@@ -34,6 +34,8 @@ public:
     void receive_loop();
     std::atomic<bool> stopped;
     WsInFrame read_frame();
+    void send_binary(const std::vector<uint8_t>& data);
+    void send_close(uint16_t code);
 
 private:
     asio::io_context internal_io_;

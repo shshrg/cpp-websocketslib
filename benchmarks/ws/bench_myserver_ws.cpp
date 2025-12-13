@@ -50,8 +50,6 @@ static std::string fmt6(uint32_t x) {
 int main() {
     try {
         asio::io_context io;
-        // std::cout << "[myserver] cwd=" << std::filesystem::current_path() << "\n";
-
 
         asio::ip::address address = asio::ip::make_address("127.0.0.1");
         unsigned short port = 9001;
@@ -82,9 +80,6 @@ int main() {
 
                     {
                         std::lock_guard<std::mutex> lock(g_sessions_mtx);
-                        // Assuming ws has a unique get_client_id() or we cast pointer to size_t
-                        // Based on your WebSocket.h, you have client_id_ member but maybe no getter?
-                        // We can use the pointer address as ID for this map.
                         g_sessions[(size_t) ws.get()] = state;
                     }
 
@@ -95,19 +90,17 @@ int main() {
                             asio::steady_timer timer(co_await asio::this_coro::executor);
                             const auto frame_interval = 33ms; // ~30 FPS
 
-                            // uint32_t frame_id = 0;
 
                             for (;;) {
                                 if (!ws->is_open()) co_return;
-                                // 1) Read next JPEG from disk
-                                //    (replace with your own file list / loop / stop condition)
+
                                 std::string current_cat;
                                 uint32_t current_id;
 
                                 {
                                     std::lock_guard<std::mutex> lock(state->mtx);
                                     current_cat = state->category;
-                                    current_id = ++state->frame_id; // Increment safely
+                                    current_id = ++state->frame_id;
                                 }
                                 std::string path = "frames/" + current_cat + "/" + fmt6(current_id);
                                 std::vector<uint8_t> jpg;
@@ -124,8 +117,6 @@ int main() {
                                     continue;
                                 }
 
-                                // 2) Build payload: [header | jpeg_bytes]
-                                // header: uint32 frame_id, uint64 send_ts_us
                                 uint64_t ts_us = duration_cast<microseconds>(
                                     system_clock::now().time_since_epoch()
                                 ).count();
@@ -136,10 +127,8 @@ int main() {
                                 append_u32_be(packet, current_id);
                                 append_u64_be(packet, ts_us);
                                 packet.insert(packet.end(), jpg.begin(), jpg.end());
-                                // // 3) Send as WS binary (non-blocking: posts into write_strand)
                                 ws->send_binary_async(std::move(packet));
 
-                                // 4) Pace at 30 FPS
                                 timer.expires_after(frame_interval);
                                 co_await timer.async_wait(asio::use_awaitable);
                             }
@@ -148,11 +137,8 @@ int main() {
                     );
                 })
                 .on_message([&](std::shared_ptr<WebSocket> ws, std::string_view msg) {
-                    // 4. Handle Video Switching Command
                     std::string cmd(msg);
 
-                    // Expect command format: "video:cat" or just "cat"
-                    // Let's assume the message IS the category name for simplicity
                     std::cout << "[server] Switch video request: " << cmd << "\n";
 
                     std::shared_ptr<SessionState> state;
@@ -164,7 +150,6 @@ int main() {
 
                     if (state) {
                         std::lock_guard<std::mutex> lock(state->mtx);
-                        // Only update if it's a valid category to prevent directory traversal attacks
                         if (cmd == "winter" || cmd == "cat" || cmd == "car") {
                             state->category = cmd;
                             state->frame_id = 0; // Reset video to start
@@ -179,10 +164,10 @@ int main() {
 
         server.MountStatic("/videos", "./www");
 
-        std::size_t threads = 1;
+        std::size_t threads = 2;
 
         server.start(threads);
-        std::cout << "[myserver] WS echo listening on ws://0.0.0.0:"
+        std::cout << "[myserver] WS echo listening on ws://127.0.0.1:"
                 << port << "/ws-echo (" << threads << " threads)\n";
         std::cout << "Press ENTER to stop...\n";
 

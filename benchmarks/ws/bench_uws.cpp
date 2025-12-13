@@ -26,7 +26,7 @@ int main() {
         })
         .listen(port, [port](auto *listenSocket) {
             if (listenSocket) {
-                std::cout << "[uWS] WS echo listening on ws://0.0.0.0:"
+                std::cout << "[uWS] WS echo listening on ws://127.0.0.1:"
                           << port << "/ws-echo\n";
             } else {
                 std::cout << "[uWS] Failed to listen on port " << port << "\n";

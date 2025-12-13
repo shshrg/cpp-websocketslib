@@ -55,8 +55,6 @@ awaitable<void> do_read(ssl_socket& socket) {
     }
 }
 
-// TODO: Config clients
-// TODO: Google tests
 awaitable<void> do_write(ssl_socket &socket) {
     try {
         while (true) {

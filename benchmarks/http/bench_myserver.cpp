@@ -1,4 +1,3 @@
-// benchmarks/http/bench_myserver_hello.cpp
 #include "server.h"
 #include <asio.hpp>
 #include <iostream>
@@ -51,7 +50,6 @@ int main(int argc, char *argv[]) {
 
         server.MountStatic("/static", "./www/static");
 
-        // Important: add Connection: close unless you implemented keep-alive
         server.Get("/ping", [](const Request &) {
             Response r = Response::text("OK\n");
             r.set_header("Connection", "close");
@@ -61,7 +59,6 @@ int main(int argc, char *argv[]) {
         server.Post("/echo", [](const Request &req) -> Response {
             Response r = Response::text(req.body); // Echo body
             r.set_header("content-type", "application/octet-stream");
-            // Optional: enable or disable keep-alive here
             return r;
         });
 
