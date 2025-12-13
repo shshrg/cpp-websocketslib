@@ -9,6 +9,8 @@
 #include <utility>
 #include <vector>
 #include <filesystem>
+#include <type_traits>
+
 #include "http/request.h"
 #include "http/response.h"
 #include "websocket/WebSocket.h"
@@ -176,6 +178,7 @@ private:
 
     asio::awaitable<Response> handle_request(const Request &request);
 
+#ifdef __linux__
     template<typename Socket>
     asio::awaitable<bool> sendfile_fast_path(
         Socket &socket,
@@ -184,6 +187,16 @@ private:
         std::uintmax_t size
     );
     template<typename Socket>
+#endif
+
+#ifdef _WIN32
+    template<typename Socket>
+    asio::awaitable<bool> transmitfile_fast_path(
+        Socket &socket,
+        const std::string &path,
+        std::uintmax_t size
+    );
+#endif
 
     asio::awaitable<void> write_regular_response(
         Socket &socket,

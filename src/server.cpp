@@ -10,6 +10,16 @@
 #include <sys/sendfile.h>
 #endif
 
+#ifdef _WIN32
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <mswsock.h>
+#include <windows.h>
+#endif
+
 void Server::start(size_t worker_threads) {
     if (work_guard_) return;
 #ifdef __linux__
@@ -255,6 +265,51 @@ asio::awaitable<void> Server::write_regular_response(
     );
 }
 
+#ifdef _WIN32
+template<typename Socket>
+asio::awaitable<bool> Server::transmitfile_fast_path(
+    Socket &socket,
+    const std::string &path,
+    std::uintmax_t size
+) {
+    // Open the file for reading
+    HANDLE hFile = CreateFileA(
+        path.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_SEQUENTIAL_SCAN,
+        nullptr
+    );
+    if (hFile == INVALID_HANDLE_VALUE) {
+        co_return false;
+    }
+
+    (void) size;
+
+    SOCKET s = socket.native_handle();
+
+    BOOL ok = TransmitFile(
+        s,
+        hFile,
+        0, // 0 -> send entire file
+        0, // system default send size
+        nullptr,
+        nullptr,
+        0 // no special flags for now
+    );
+
+    CloseHandle(hFile);
+
+    if (!ok) {
+        co_return false;
+    }
+
+    co_return true;
+}
+#endif
+
 #ifdef __linux__
 template<typename Socket>
 asio::awaitable<bool> Server::sendfile_fast_path(
@@ -323,6 +378,26 @@ asio::awaitable<void> Server::write_file_response(
             }
 
             co_return;
+        }
+    }
+#endif
+
+#ifdef _WIN32
+    // Only use TransmitFile for plain TCP sockets, not SSL.
+    if constexpr (std::is_same_v<Socket, asio::ip::tcp::socket>) {
+        if (response.sendfile_size > 0) {
+            std::string head = prepare_headers(response, response.sendfile_size);
+
+            co_await asio::async_write(
+                socket,
+                asio::buffer(head),
+                asio::bind_cancellation_slot(token, asio::use_awaitable)
+            );
+
+            bool ok = co_await transmitfile_fast_path(socket, path, response.sendfile_size);
+            if (ok) {
+                co_return;
+            }
         }
     }
 #endif

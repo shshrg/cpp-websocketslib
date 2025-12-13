@@ -45,7 +45,7 @@ fi
 echo "=== Generating Root CA ==="
 if [[ ! -f "$ROOT_CA_KEY" ]]; then
     openssl genrsa -out "$ROOT_CA_KEY" $KEY_BITS
-    openssl req -x509 -new -nodes -key "$ROOT_CA_KEY" -sha256 -days 1825 \
+    MSYS2_ARG_CONV_EXCL="*" openssl req -x509 -new -nodes -key "$ROOT_CA_KEY" -sha256 -days 1825 \
         -out "$ROOT_CA_CERT" -subj "/CN=Local Dev Root CA"
 fi
 
