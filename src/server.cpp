@@ -1,3 +1,16 @@
+/**
+ * @file server.cpp
+ * @brief Implementation of the high-performance ASIO-based HTTP/WebSocket server.
+ *
+ * This file contains the core implementation of the Server class, handling TCP/SSL connections,
+ * HTTP request processing, WebSocket upgrades, static file serving with platform-optimized
+ * zero-copy transfers (sendfile/TransmitFile), and multi-threaded I/O context management.
+ * Supports keep-alive, cancellation signals for graceful shutdown, and route-based request handling.
+ *
+ * @version 1.0
+ * @date 2025
+ */
+
 #include "server.h"
 #include <iostream>
 #include <ranges>
@@ -20,12 +33,20 @@
 #include <windows.h>
 #endif
 
+/**
+ * @brief Starts the server with the specified number of worker threads.
+ *
+ * Initializes the I/O context work guard to prevent premature shutdown, ignores SIGPIPE on Linux
+ * for robustness, spawns the accept loop, and launches worker threads to run the io_context_.
+ * The number of threads is capped at the hardware concurrency level.
+ *
+ * @param worker_threads Number of worker threads to spawn. Defaults to hardware concurrency if higher.
+ */
 void Server::start(size_t worker_threads) {
     if (work_guard_) return;
 #ifdef __linux__
     signal(SIGPIPE, SIG_IGN);
 #endif
-
 
     // Keep io_context alive
     work_guard_.emplace(asio::make_work_guard(io_context_));
@@ -40,6 +61,12 @@ void Server::start(size_t worker_threads) {
     }
 }
 
+/**
+ * @brief Gracefully stops the server.
+ *
+ * Cancels all ongoing accepts and client operations via cancellation signals, closes WebSockets,
+ * resets the work guard, and joins all worker threads. Ensures clean shutdown without abrupt closes.
+ */
 void Server::stop() {
     // Stop accepting clients
     server_cancel_.emit(asio::cancellation_type::all);
@@ -57,6 +84,14 @@ void Server::stop() {
     workers_.clear();
 }
 
+/**
+ * @brief Asynchronously accepts incoming client connections in a loop.
+ *
+ * Runs indefinitely until cancelled (e.g., via server shutdown). For each accepted socket,
+ * spawns a new handle_client coroutine. Uses client_id for tracking.
+ *
+ * @return asio::awaitable<void> Coroutine that completes on cancellation.
+ */
 asio::awaitable<void> Server::do_accept() {
     size_t client_id = 0;
 
@@ -76,7 +111,18 @@ asio::awaitable<void> Server::do_accept() {
     }
 }
 
-
+/**
+ * @brief Processes an HTTP session over the given socket, handling multiple requests via keep-alive.
+ *
+ * Reads requests in a loop, checks for WebSocket upgrades, routes HTTP requests, and writes responses.
+ * Supports Connection: keep-alive/close header parsing for persistent connections.
+ *
+ * @tparam Socket The socket type (tcp::socket or ssl::stream<tcp::socket>).
+ * @param socket Reference to the connected socket.
+ * @param token Cancellation slot for aborting operations.
+ * @param client_id Unique ID for this client session.
+ * @return asio::awaitable<void> Coroutine that exits on error, close, or cancellation.
+ */
 template<typename Socket>
 asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation_slot token, size_t client_id) {
     while (true) {
@@ -127,6 +173,20 @@ asio::awaitable<void> Server::process_session(Socket &socket, asio::cancellation
     }
 }
 
+/**
+ * @brief Handles WebSocket upgrade and session after HTTP 101 response.
+ *
+ * Computes Sec-WebSocket-Accept key, sends 101 Switching Protocols response, creates WebSocket
+ * instance, registers it, sets up cleanup callbacks, and starts the WS loop.
+ *
+ * @tparam Socket The socket type.
+ * @param socket Moved socket for WebSocket ownership.
+ * @param sec_ws_key The Sec-WebSocket-Key from HTTP upgrade request.
+ * @param handlers WebSocket event handlers for this path.
+ * @param token Cancellation slot.
+ * @param client_id Client ID.
+ * @return asio::awaitable<void> Coroutine for WS session.
+ */
 template<typename Socket>
 asio::awaitable<void> Server::process_session_ws(Socket socket,
                                                  const std::string &sec_ws_key,
@@ -160,7 +220,14 @@ asio::awaitable<void> Server::process_session_ws(Socket socket,
     co_await ws->start();
 }
 
-
+/**
+ * @brief Routes and handles an incoming HTTP request.
+ *
+ * Looks up route handlers by method and path, falls back to static file serving if no route found.
+ *
+ * @param req The parsed HTTP Request.
+ * @return asio::awaitable<Response> The generated Response.
+ */
 asio::awaitable<Response> Server::handle_request(const Request &req) {
     auto method_it = routes_.find(req.method);
     if (method_it != routes_.end()) {
@@ -177,6 +244,16 @@ asio::awaitable<Response> Server::handle_request(const Request &req) {
     co_return Response::not_found();
 }
 
+/**
+ * @brief Handles a full client connection, including optional SSL handshake.
+ *
+ * Adds client to tracking, sets up cancellation slot, performs SSL handshake if enabled,
+ * then delegates to process_session.
+ *
+ * @param socket Accepted TCP socket.
+ * @param client_id Unique client ID.
+ * @return asio::awaitable<void> Coroutine for client lifecycle.
+ */
 asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id) {
     add_client(client_id);
     asio::cancellation_slot token = get_client_slot(client_id);
@@ -204,6 +281,16 @@ asio::awaitable<void> Server::handle_client(tcp::socket socket, size_t client_id
     co_return;
 }
 
+/**
+ * @brief Reads and parses a full HTTP request (headers + body).
+ *
+ * Reads headers first, parses Request, then reads body if Content-Length present.
+ *
+ * @tparam Socket Socket type.
+ * @param socket Socket to read from.
+ * @param token Cancellation slot.
+ * @return asio::awaitable<Request> Parsed Request object.
+ */
 template<typename Socket>
 asio::awaitable<Request> Server::do_read(Socket &socket, asio::cancellation_slot token) {
     Request req;
@@ -221,7 +308,16 @@ asio::awaitable<Request> Server::do_read(Socket &socket, asio::cancellation_slot
     co_return req;
 }
 
-
+/**
+ * @brief Writes an HTTP response, using fast-path for file sends if applicable.
+ *
+ * Dispatches to write_file_response if sendfile_path set, else write_regular_response.
+ *
+ * @tparam Socket Socket type.
+ * @param socket Socket to write to.
+ * @param response Response to serialize and send.
+ * @param token Cancellation slot.
+ */
 template<typename Socket>
 asio::awaitable<void> Server::do_write(
     Socket &socket,
@@ -235,6 +331,16 @@ asio::awaitable<void> Server::do_write(
     }
 }
 
+/**
+ * @brief Writes a regular (non-file) HTTP response: headers + body.
+ *
+ * Prepares headers with Content-Length, writes headers then body (or just headers if empty).
+ *
+ * @tparam Socket Socket type.
+ * @param socket Socket to write to.
+ * @param response Response object.
+ * @param token Cancellation slot.
+ */
 template<typename Socket>
 asio::awaitable<void> Server::write_regular_response(
     Socket &socket,
@@ -265,6 +371,17 @@ asio::awaitable<void> Server::write_regular_response(
     );
 }
 
+/**
+ * @brief Windows-specific fast-path using TransmitFile for zero-copy file sending.
+ *
+ * Sends file headers first, then entire file via TransmitFile API for efficiency.
+ *
+ * @tparam Socket Must be tcp::socket (not SSL).
+ * @param socket Native socket handle accessible.
+ * @param path Full file path.
+ * @param size File size.
+ * @return asio::awaitable<bool> True if fully sent, false on failure.
+ */
 #ifdef _WIN32
 template<typename Socket>
 asio::awaitable<bool> Server::transmitfile_fast_path(
@@ -310,6 +427,18 @@ asio::awaitable<bool> Server::transmitfile_fast_path(
 }
 #endif
 
+/**
+ * @brief Linux-specific fast-path using sendfile for zero-copy file sending.
+ *
+ * Sends headers first, then file in chunks via sendfile(2), handling EAGAIN with wait.
+ *
+ * @tparam Socket Socket type.
+ * @param socket Socket.
+ * @param native_sock Native file descriptor.
+ * @param path File path.
+ * @param size File size.
+ * @return asio::awaitable<bool> True if fully sent.
+ */
 #ifdef __linux__
 template<typename Socket>
 asio::awaitable<bool> Server::sendfile_fast_path(
@@ -350,7 +479,17 @@ asio::awaitable<bool> Server::sendfile_fast_path(
 }
 #endif
 
-
+/**
+ * @brief Writes a file-based response, preferring platform zero-copy if available.
+ *
+ * Tries sendfile/TransmitFile fast-paths first (platform-specific), falls back to
+ * buffered stream_file read/write loop with 64KB chunks.
+ *
+ * @tparam Socket Socket type.
+ * @param socket Socket.
+ * @param response Response with sendfile_path/size set.
+ * @param token Cancellation slot.
+ */
 template<typename Socket>
 asio::awaitable<void> Server::write_file_response(
     Socket &socket,
@@ -358,7 +497,6 @@ asio::awaitable<void> Server::write_file_response(
     asio::cancellation_slot token
 ) {
     const std::string &path = response.sendfile_path.string();
-
 
 #ifdef __linux__
     int native_sock = get_native_handle(socket);
@@ -441,18 +579,39 @@ asio::awaitable<void> Server::write_file_response(
     }
 }
 
+/**
+ * @brief Adds a client to the cancellation tracking map.
+ *
+ * Thread-safe insertion into client_cancel_ map.
+ *
+ * @param client_id Unique client ID.
+ */
 void Server::add_client(size_t client_id) {
     std::lock_guard lock(mutex_);
     client_cancel_.try_emplace(client_id);
 }
 
+/**
+ * @brief Retrieves the cancellation slot for a specific client.
+ *
+ * Thread-safe lookup; returns default-constructed slot if not found.
+ *
+ * @param client_id Client ID.
+ * @return asio::cancellation_slot For the client.
+ */
 asio::cancellation_slot Server::get_client_slot(size_t client_id) {
     std::lock_guard lock(mutex_);
     auto it = client_cancel_.find(client_id);
     return (it != client_cancel_.end()) ? it->second.slot() : asio::cancellation_slot();
 }
 
-
+/**
+ * @brief Emits cancellation signal for a specific client.
+ *
+ * Thread-safe: copies signal pointer under lock, emits outside.
+ *
+ * @param client_id Client ID to cancel.
+ */
 void Server::emit_client(size_t client_id) {
     asio::cancellation_signal *sig = nullptr;
     {
@@ -463,6 +622,11 @@ void Server::emit_client(size_t client_id) {
     if (sig) sig->emit(asio::cancellation_type::all);
 }
 
+/**
+ * @brief Emits cancellation to all tracked clients.
+ *
+ * Collects IDs under lock, emits serially to avoid lock contention.
+ */
 void Server::emit_all() {
     std::vector<size_t> client_ids;
     {
@@ -476,11 +640,26 @@ void Server::emit_all() {
         emit_client(id);
 }
 
+/**
+ * @brief Removes a client from tracking.
+ *
+ * Thread-safe erase.
+ *
+ * @param client_id Client ID.
+ */
 void Server::remove_client(size_t client_id) {
     std::lock_guard lock(mutex_);
     client_cancel_.erase(client_id);
 }
 
+/**
+ * @brief Sets up SSL context with certificates.
+ *
+ * Loads chain and private key from "certs/localhost.crt/key". Returns false on failure.
+ * Only compiled if USE_SSL defined.
+ *
+ * @return bool True if setup successful.
+ */
 #ifdef USE_SSL
 bool Server::setup_ssl() {
     if (use_ssl_) {
@@ -504,6 +683,15 @@ bool Server::setup_ssl() {
 }
 #endif
 
+/**
+ * @brief Maps file extensions to MIME types.
+ *
+ * Static lookup table for common types, defaults to application/octet-stream.
+ * Case-insensitive.
+ *
+ * @param ext File extension (with or without dot).
+ * @return std::string MIME type string.
+ */
 static std::string ext_type(const std::string &ext) {
     std::string e = ext;
     if (!e.empty() && e.front() == '.')
@@ -536,6 +724,15 @@ static std::string ext_type(const std::string &ext) {
     return (it != k.end()) ? it->second : std::string("application/octet-stream");
 }
 
+/**
+ * @brief Serves static files from mounted directories.
+ *
+ * Matches longest prefix mount, resolves path safely (no directory traversal),
+ * sets MIME type, configures sendfile for zero-copy.
+ *
+ * @param req GET request.
+ * @return asio::awaitable<Response> 404 if not found/mount mismatch, else file response.
+ */
 asio::awaitable<Response> Server::serve_static(const Request &req) {
     if (req.method != Method::GET)
         co_return Response::bad_request("Method not supported");
@@ -576,17 +773,36 @@ asio::awaitable<Response> Server::serve_static(const Request &req) {
     co_return res;
 }
 
+/**
+ * @brief Mounts a filesystem directory for static serving at a URL prefix.
+ *
+ * Canonicalizes root path if relative. Enables static file serving for matching prefixes.
+ *
+ * @param url_prefix URL prefix (e.g., "/static").
+ * @param root Filesystem path to serve.
+ */
 void Server::MountStatic(std::string url_prefix, fs::path root) {
     if (!root.empty() && root.is_relative())
         root = fs::weakly_canonical(root);
     static_mounts_.emplace(std::move(url_prefix), std::move(root));
 }
 
+/**
+ * @brief Posts a task to the io_context for asynchronous execution.
+ *
+ * Useful for non-network tasks from other threads.
+ *
+ * @param task std::function<void()> to execute.
+ */
 void Server::post_task(std::function<void()> task) {
     asio::post(io_context_, std::move(task));
 }
 
-
+/**
+ * @brief Closes all active WebSockets during shutdown.
+ *
+ * Collects shared_ptrs under lock, sends close frames with code 1001.
+ */
 void Server::close_websockets() {
     std::vector<std::shared_ptr<WebSocket> > to_close;
     {

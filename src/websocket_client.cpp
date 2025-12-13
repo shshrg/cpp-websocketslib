@@ -1,43 +1,44 @@
+/**
+ * @file websocket_client.cpp
+ * @brief Implementation of a WebSocket client with optional SSL/TLS support.
+ *
+ * Provides a WebSocketClient class that supports:
+ * - Connecting to WebSocket servers (with optional SSL/TLS)
+ * - Sending and receiving messages (text and binary)
+ * - Handling fragmented messages and control frames (Ping/Pong/Close)
+ * - Base64 key generation for handshake
+ * - Optional binary frame visualization (OpenCV commented out)
+ */
+
 #include "websocket_client.h"
 #include <iostream>
 #include <random>
 #include <array>
-
 #include <cstdint>
 #include <chrono>
 // #include <opencv2/opencv.hpp>
 
-// inline uint32_t read_u32_be(const uint8_t *p) {
-//     return (uint32_t(p[0]) << 24) |
-//            (uint32_t(p[1]) << 16) |
-//            (uint32_t(p[2]) << 8) |
-//            uint32_t(p[3]);
-// }
-//
-// inline uint64_t read_u64_be(const uint8_t *p) {
-//     uint64_t v = 0;
-//     for (int i = 0; i < 8; ++i) v = (v << 8) | uint64_t(p[i]);
-//     return v;
-// }
-//
-// inline uint64_t now_steady_us() {
-//     using namespace std::chrono;
-//     uint64_t ts_us = duration_cast<microseconds>(
-//         system_clock::now().time_since_epoch()
-//     ).count();
-//
-//     return ts_us;
-// }
+// --- Optional utility functions ---
+// inline uint32_t read_u32_be(const uint8_t *p) { ... }
+// inline uint64_t read_u64_be(const uint8_t *p) { ... }
+// inline uint64_t now_steady_us() { ... }
 
+/**
+ * @brief Constructs a WebSocket client.
+ * @param use_ssl Enable SSL/TLS if true.
+ */
 WebSocketClient::WebSocketClient(bool use_ssl)
     : use_ssl_(use_ssl), stopped(false)
 #ifdef USE_SSL
       , ssl_ctx_(asio::ssl::context::tls_client)
       , ssl_socket_(internal_io_, ssl_ctx_)
 #endif
-      , socket_(internal_io_) {
-}
+      , socket_(internal_io_) {}
 
+/**
+ * @brief Sets SSL certificate verification file.
+ * @param file Path to certificate file.
+ */
 #ifdef USE_SSL
 void WebSocketClient::set_verify_cert_file(const std::string &file) {
     if (!use_ssl_) return;
@@ -46,6 +47,13 @@ void WebSocketClient::set_verify_cert_file(const std::string &file) {
 }
 #endif
 
+/**
+ * @brief Connects to a WebSocket server and performs handshake.
+ * @param host Server hostname or IP
+ * @param port Server port
+ * @param path WebSocket endpoint path
+ * @throws std::runtime_error on failure
+ */
 void WebSocketClient::connect(const std::string &host,
                               const std::string &port,
                               const std::string &path) {
@@ -89,6 +97,10 @@ void WebSocketClient::connect(const std::string &host,
         throw std::runtime_error("Handshake failed:\n" + response);
 }
 
+/**
+ * @brief Sends a text message to the server.
+ * @param msg Message string
+ */
 void WebSocketClient::send_text(const std::string &msg) {
     if (stopped) return;
     std::vector<uint8_t> frame;
@@ -105,43 +117,22 @@ void WebSocketClient::send_text(const std::string &msg) {
     }
 }
 
+/**
+ * @brief Receives messages in a continuous loop.
+ *
+ * Handles text and binary messages, including fragmented messages,
+ * and processes control frames.
+ */
 void WebSocketClient::receive_loop() {
     for (;;) {
         try {
             WsMessage m = read_message();
             if (m.opcode == 0x1) {
-                // text
                 std::string msg(reinterpret_cast<char*>(m.payload.data()), m.payload.size());
                 std::cout << "[WS CLIENT] Text: " << msg << "\n";
             }
             else if (m.opcode == 0x2) {
-                // if (m.payload.size() < 12) {
-                //     std::cout << "BAD PACKET: size=" << m.payload.size() << "\n";
-                //     continue;
-                // }
-                //
-                // uint32_t frame_id = read_u32_be(m.payload.data());
-                // static uint32_t expected = 1;
-                // if (frame_id != expected) {
-                //     std::cout << "DROP/REORDER: expected " << expected << " got " << frame_id << "\n";
-                //     expected = frame_id;
-                // }
-                // expected++;
-                // uint64_t send_ts_us = read_u64_be(m.payload.data() + 4);
-                //
-                // uint64_t now_us = now_steady_us();
-                // uint64_t one_way_us = now_us - send_ts_us;
-                //
-                // const uint8_t* jpg = m.payload.data() + 12;
-                // size_t jpg_size = m.payload.size() - 12;
-
-                // std::cout << "[WS CLIENT] Frame " << frame_id
-                //           << " jpeg=" << jpg_size
-                //           << " one_way_us=" << one_way_us << "\n";
-
-                // visualize (next section)
-                // show_jpeg_frame(jpg, jpg_size);
-
+                // Binary frame handling (optional, commented)
             }
         } catch (const std::exception &e) {
             std::string what = e.what();
@@ -161,6 +152,12 @@ void WebSocketClient::receive_loop() {
     stopped = true;
 }
 
+/**
+ * @brief Base64-encodes input data.
+ * @param data Pointer to bytes
+ * @param len Number of bytes
+ * @return Base64 string
+ */
 std::string WebSocketClient::base64_encode(const unsigned char *data, size_t len) {
     static const char table[] =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -180,6 +177,10 @@ std::string WebSocketClient::base64_encode(const unsigned char *data, size_t len
     return out;
 }
 
+/**
+ * @brief Generates a random Sec-WebSocket-Key.
+ * @return Base64 string key
+ */
 std::string WebSocketClient::generate_key() {
     std::array<unsigned char, 16> r{};
     std::random_device rd;
@@ -188,6 +189,10 @@ std::string WebSocketClient::generate_key() {
     return base64_encode(r.data(), r.size());
 }
 
+/**
+ * @brief Reads HTTP headers until empty line.
+ * @return Concatenated headers string
+ */
 std::string WebSocketClient::read_http_headers() {
     asio::streambuf buf;
     std::string out;
@@ -210,6 +215,11 @@ std::string WebSocketClient::read_http_headers() {
     return out;
 }
 
+/**
+ * @brief Builds a masked text frame.
+ * @param msg Message string
+ * @param out Vector to store frame bytes
+ */
 void WebSocketClient::make_frame_text(const std::string &msg, std::vector<uint8_t> &out) {
     out.clear();
     uint8_t op = 0x81;
@@ -243,6 +253,10 @@ void WebSocketClient::make_frame_text(const std::string &msg, std::vector<uint8_
     }
 }
 
+/**
+ * @brief Reads a WebSocket frame.
+ * @return WsInFrame structure
+ */
 WsInFrame WebSocketClient::read_frame() {
     static constexpr uint64_t MAX_FRAME_PAYLOAD = 8ull * 1024 * 1024; // 8MB
 
@@ -271,24 +285,13 @@ WsInFrame WebSocketClient::read_frame() {
     read_any(header, 2);
 
     WsInFrame f{};
-
     f.fin = (header[0] & 0x80) != 0;
     f.opcode = header[0] & 0x0F;
 
     bool masked = header[1] & 0x80;
     uint64_t len = header[1] & 0x7F;
     uint8_t rsv = header[0] & 0x70;
-    if (rsv != 0) {
-        throw std::runtime_error("RSV bits set (extensions not supported)");
-    }
-
-    // std::cout << "[DBG] hdr0=0x" << std::hex << int(header[0])
-    //       << " hdr1=0x" << int(header[1]) << std::dec
-    //       << " fin=" << f.fin
-    //       << " opcode=0x" << std::hex << int(f.opcode) << std::dec
-    //       << " masked=" << masked
-    //       << " len7=" << len
-    //       << "\n";
+    if (rsv != 0) throw std::runtime_error("RSV bits set (extensions not supported)");
 
     switch (f.opcode) {
         case 0x0: case 0x1: case 0x2: case 0x8: case 0x9: case 0xA:
@@ -309,13 +312,10 @@ WsInFrame WebSocketClient::read_frame() {
     }
 
     std::array<uint8_t, 4> mask_key{0, 0, 0, 0};
-    if (masked) {
-        read_any(mask_key.data(), 4);
-    }
+    if (masked) read_any(mask_key.data(), 4);
 
-    if (len > MAX_FRAME_PAYLOAD) {
+    if (len > MAX_FRAME_PAYLOAD)
         throw std::runtime_error("Frame too large or parse desync: len=" + std::to_string(len));
-    }
 
     f.payload.resize(len);
     if (len > 0) read_any(f.payload.data(), len);
@@ -330,47 +330,22 @@ WsInFrame WebSocketClient::read_frame() {
     return f;
 }
 
-
-// void WebSocketClient::show_jpeg_frame(const uint8_t* data, size_t size) {
-//     cv::Mat buf(1, static_cast<int>(size), CV_8UC1, const_cast<uint8_t*>(data));
-//     cv::Mat img = cv::imdecode(buf, cv::IMREAD_COLOR);
-//     if (img.empty()) return;
-//
-//     cv::Mat resized_img;
-//     double scale_factor = 0.25;
-//     cv::resize(img, resized_img, cv::Size(),
-//                 scale_factor, scale_factor, cv::INTER_AREA);
-//
-//     cv::imshow("WS Video", resized_img);
-//     cv::waitKey(1);
-// }
-
+/**
+ * @brief Reads a complete WebSocket message, assembling fragments.
+ * @return WsMessage struct with opcode and payload
+ */
 WsMessage WebSocketClient::read_message() {
     for (;;) {
-        WsInFrame f = read_frame(); // low-level: reads ONE frame (maybe fragment)
+        WsInFrame f = read_frame(); // low-level frame
 
-        // --- Control frames (can be interleaved) ---
         if (f.opcode == 0x8) throw std::runtime_error("Server closed connection");
-        if (f.opcode == 0x9) {
-            // Ping -> Pong with same payload (optional but recommended)
-            // send_pong(f.payload);   // implement or ignore if your server doesn’t ping
-            continue;
-        }
-        if (f.opcode == 0xA) {
-            // pong ignore
-            continue;
-        }
+        if (f.opcode == 0x9) continue; // Ping
+        if (f.opcode == 0xA) continue; // Pong
 
-        // --- Data frames: TEXT/BINARY/CONT ---
         if (!assembling_) {
-            // Start of a new message
-            if (f.opcode == 0x0) {
-                // stray continuation; ignore/resync
-                continue;
-            }
-            if (f.opcode != 0x1 && f.opcode != 0x2) {
+            if (f.opcode == 0x0) continue;
+            if (f.opcode != 0x1 && f.opcode != 0x2)
                 throw std::runtime_error("Protocol error: unsupported data opcode");
-            }
             assembling_ = true;
             assembling_opcode_ = f.opcode;
             assembling_buf_.clear();
@@ -382,12 +357,13 @@ WsMessage WebSocketClient::read_message() {
             }
             continue;
         }
-        // Continuation of the current message
+
         if (f.opcode != 0x0) {
             assembling_ = false;
             assembling_buf_.clear();
             throw std::runtime_error("Protocol error: expected continuation frame");
         }
+
         assembling_buf_.insert(assembling_buf_.end(), f.payload.begin(), f.payload.end());
 
         if (f.fin) {

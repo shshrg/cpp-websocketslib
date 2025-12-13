@@ -1,6 +1,18 @@
 #ifndef ASIO_CANCEL_SERVER_H
 #define ASIO_CANCEL_SERVER_H
 
+/**
+ * @file server.h
+ * @brief Asynchronous HTTP / WebSocket server based on standalone Asio.
+ *
+ * Provides:
+ *  - HTTP routing with sync and async handlers
+ *  - WebSocket routing
+ *  - Static file serving
+ *  - TLS (OpenSSL) support
+ *  - Per-client and global cancellation
+ */
+
 #ifdef USE_SSL
 #include <asio/ssl.hpp>
 #endif
@@ -15,24 +27,47 @@
 #include "http/response.h"
 #include "websocket/WebSocket.h"
 
+/**
+ * @brief Unified asynchronous HTTP handler type.
+ *
+ * All handlers (sync and async) are converted to this type internally.
+ */
 using HandlerAsync = std::function<asio::awaitable<Response>(const Request &)>;
+
+/**
+ * @brief Synchronous HTTP handler type.
+ */
 using HandlerSync = std::function<Response(const Request &)>;
 
 namespace fs = std::filesystem;
 
-// Just check the return type of handler
+/**
+ * @brief Helper alias to extract handler return type.
+ */
 template<class F>
 using call_result_t = std::invoke_result_t<F, const Request &>;
 
-// concept is a set of requirements
-// i.e. some constraint onto the macro to distinguish between SyncHandler and AsyncHandler
+/**
+ * @brief Constraint for synchronous handlers.
+ *
+ * Handler must return Response.
+ */
 template<class F>
 concept SyncConstraint = std::is_same_v<call_result_t<F>, Response>;
 
-// Need a constraint here to differ between make_async in add_route
+/**
+ * @brief Constraint for asynchronous handlers.
+ *
+ * Handler must return asio::awaitable<Response>.
+ */
 template<class F>
 concept AsyncConstraint = std::is_same_v<call_result_t<F>, asio::awaitable<Response> >;
 
+/**
+ * @brief Comparator for static mount prefixes.
+ *
+ * Longer prefixes have higher priority.
+ */
 struct PrefixComparator {
     bool operator()(const std::string &a, const std::string &b) const {
         if (a.size() != b.size())
@@ -41,111 +76,140 @@ struct PrefixComparator {
     }
 };
 
-
+/**
+ * @brief Main asynchronous HTTP / WebSocket server.
+ *
+ * Features:
+ *  - Coroutine-based request handling
+ *  - HTTP routing (GET/POST/PUT/DELETE)
+ *  - WebSocket routing
+ *  - Static file serving
+ *  - TLS support (optional)
+ *  - Graceful shutdown and cancellation
+ */
 class Server : public std::enable_shared_from_this<Server> {
 public:
     using tcp = asio::ip::tcp;
 
-    explicit Server(asio::io_context &io_context, const asio::ip::address &address, unsigned short port,
-                    bool use_ssl = false)
-        : io_context_(io_context),
-          acceptor_(io_context_, tcp::endpoint(address, port))
-#ifdef USE_SSL
-          , use_ssl_(use_ssl), ssl_context_(asio::ssl::context::tls_server)
-#else
-        , use_ssl_(false)
-#endif
-    {
-#ifdef USE_SSL
-        if (use_ssl_ && !setup_ssl())
-            throw std::runtime_error("SSL setup failed");
-#else
-        if (use_ssl)
-            std::cerr << "WARNING: SSL requested but OpenSSL is disabled!\n";
-#endif
-    }
+    /**
+     * @brief Construct server instance.
+     *
+     * @param io_context Shared Asio io_context
+     * @param address Bind address
+     * @param port Bind port
+     * @param use_ssl Enable TLS (requires OpenSSL)
+     */
+    explicit Server(asio::io_context &io_context,
+                    const asio::ip::address &address,
+                    unsigned short port,
+                    bool use_ssl = false);
 
-    // Method Interfaces
+    /// Register HTTP GET handler
     template<typename F>
     void Get(std::string path, F h) { add_route(Method::GET, std::move(path), std::move(h)); }
 
+    /// Register HTTP POST handler
     template<typename F>
     void Post(std::string path, F h) { add_route(Method::POST, std::move(path), std::move(h)); }
 
+    /// Register HTTP PUT handler
     template<typename F>
     void Put(std::string path, F h) { add_route(Method::PUT, std::move(path), std::move(h)); }
 
+    /// Register HTTP DELETE handler
     template<typename F>
     void Delete(std::string path, F h) { add_route(Method::DELETE_, std::move(path), std::move(h)); }
 
-    // Mount Static
+    /**
+     * @brief Mount static directory.
+     *
+     * @param url_prefix URL prefix (e.g. "/static")
+     * @param root Filesystem path
+     */
     void MountStatic(std::string url_prefix, fs::path root);
 
-
+    /**
+     * @brief Start server worker threads.
+     *
+     * @param worker_threads Maximum number of threads
+     */
     void start(size_t worker_threads);
+
+    /**
+     * @brief Gracefully stop server.
+     */
     void stop();
 
+    /**
+     * @brief Post task to server io_context.
+     */
     void post_task(std::function<void()> task);
 
-    // void emit_all_text(const std::string &msg);
-
+    /**
+     * @brief WebSocket route builder.
+     *
+     * Uses RAII — route is committed on destruction.
+     */
     class WsRouter {
     public:
-        WsRouter &on_open(WsOpenHandler h) {
-            handlers_.on_open = std::move(h);
-            return *this;
-        }
+        /// Set WebSocket open handler
+        WsRouter &on_open(WsOpenHandler h);
 
-        WsRouter &on_message(WsMessageHandler h) {
-            handlers_.on_message = std::move(h);
-            return *this;
-        }
+        /// Set WebSocket message handler
+        WsRouter &on_message(WsMessageHandler h);
 
-        WsRouter &on_close(WsCloseHandler h) {
-            handlers_.on_close = std::move(h);
-            return *this;
-        }
+        /// Set WebSocket close handler
+        WsRouter &on_close(WsCloseHandler h);
 
-        ~WsRouter() { srv_.commit_ws_route(std::move(path_), std::move(handlers_)); }
+        /// Commit route on destruction
+        ~WsRouter();
 
     private:
         friend class Server;
-
-        WsRouter(Server &s, std::string p) : srv_(s), path_(std::move(p)) {
-        }
+        WsRouter(Server &s, std::string p);
 
         Server &srv_;
         std::string path_;
         WsHandlers handlers_{};
     };
 
-    WsRouter WebSocketRouter(std::string path) { return WsRouter{*this, std::move(path)}; }
+    /**
+     * @brief Create WebSocket route.
+     *
+     * @param path WebSocket URL path
+     */
+    WsRouter WebSocketRouter(std::string path);
 
-    const WsHandlers *find_ws(const std::string &path) const {
-        auto it = ws_routes_.find(path);
-        return it == ws_routes_.end() ? nullptr : &it->second;
-    }
+    /**
+     * @brief Find WebSocket handlers for path.
+     */
+    const WsHandlers *find_ws(const std::string &path) const;
 
 private:
-    // Client handling
+    /* ===================== Client lifecycle ===================== */
+
     asio::cancellation_slot get_client_slot(size_t client_id);
     asio::awaitable<void> handle_client(tcp::socket socket, size_t client_id);
+
     void add_client(size_t client_id);
     void emit_client(size_t client_id);
     void emit_all();
     void remove_client(size_t client_id);
 
-    //ssl
+    /* ===================== SSL ===================== */
+
     bool setup_ssl();
 
-    // Routing
+    /* ===================== Routing ===================== */
+
     template<typename F>
     void add_route(Method method, std::string path, F h) {
         routes_[method].emplace(std::move(path), make_async(std::move(h)));
     }
 
-
-    // Convert to awaitable
+    /**
+     * @brief Convert sync handler to async.
+     */
     template<SyncConstraint F>
     HandlerAsync make_async(F h) {
         return [fn = std::move(h)](const Request &req) -> asio::awaitable<Response> {
@@ -153,6 +217,9 @@ private:
         };
     }
 
+    /**
+     * @brief Forward async handler.
+     */
     template<AsyncConstraint F>
     HandlerAsync make_async(F h) {
         return [fn = std::move(h)](const Request &req) -> asio::awaitable<Response> {
@@ -160,74 +227,41 @@ private:
         };
     }
 
-    // keep track of websockets for all connections
-    std::unordered_map<size_t, std::shared_ptr<WebSocket> > websockets_;
+    /* ===================== WebSockets ===================== */
+
+    std::unordered_map<size_t, std::shared_ptr<WebSocket>> websockets_;
     std::mutex ws_mutex;
 
-    void register_websocket(size_t id, std::shared_ptr<WebSocket> ws) {
-        std::lock_guard lock(ws_mutex);
-        websockets_[id] = std::move(ws);
-    }
+    void register_websocket(size_t id, std::shared_ptr<WebSocket> ws);
+    void remove_websocket(size_t id);
+    void close_websockets();
 
-    void remove_websocket(size_t id) {
-        std::lock_guard lock(ws_mutex);
-        websockets_.erase(id);
-    }
+    /* ===================== HTTP processing ===================== */
 
     asio::awaitable<Response> serve_static(const Request &req);
-
     asio::awaitable<Response> handle_request(const Request &request);
 
-#ifdef __linux__
-    template<typename Socket>
-    asio::awaitable<bool> sendfile_fast_path(
-        Socket &socket,
-        int &sock_fd,
-        const std::string &path,
-        std::uintmax_t size
-    );
-#endif
-
-#ifdef _WIN32
-    template<typename Socket>
-    asio::awaitable<bool> transmitfile_fast_path(
-        Socket &socket,
-        const std::string &path,
-        std::uintmax_t size
-    );
-#endif
-
-    template<typename Socket>
-    asio::awaitable<void> write_regular_response(
-        Socket &socket,
-        Response &response,
-        asio::cancellation_slot token
-    );
-
-    template<typename Socket>
-    asio::awaitable<void> write_file_response(
-        Socket &socket,
-        Response &response,
-        asio::cancellation_slot token
-    );
-
-    template<typename Socket>
-    asio::awaitable<void> process_session(Socket &socket, asio::cancellation_slot token, size_t client_id);
-
-
     asio::awaitable<void> do_accept();
+
     template<typename Socket>
     asio::awaitable<Request> do_read(Socket &socket, asio::cancellation_slot token);
+
     template<typename Socket>
     asio::awaitable<void> do_write(Socket &socket, Response &response, asio::cancellation_slot token);
 
-    void commit_ws_route(std::string path, WsHandlers handlers) { ws_routes_[std::move(path)] = std::move(handlers); }
+    template<typename Socket>
+    asio::awaitable<void> process_session(Socket &socket,
+                                          asio::cancellation_slot token,
+                                          size_t client_id);
 
     template<typename Socket>
-    asio::awaitable<void> process_session_ws(Socket socket, const std::string &sec_ws_key,
-                                             const WsHandlers *handlers, asio::cancellation_slot token,
+    asio::awaitable<void> process_session_ws(Socket socket,
+                                             const std::string &sec_ws_key,
+                                             const WsHandlers *handlers,
+                                             asio::cancellation_slot token,
                                              size_t client_id);
-    void close_websockets();
+
+    /* ===================== Internal state ===================== */
 
     asio::io_context &io_context_;
     asio::ip::tcp::acceptor acceptor_;
@@ -239,7 +273,7 @@ private:
     bool use_ssl_ = false;
 #endif
 
-    std::optional<asio::executor_work_guard<asio::io_context::executor_type> > work_guard_;
+    std::optional<asio::executor_work_guard<asio::io_context::executor_type>> work_guard_;
     std::vector<std::thread> workers_;
 
     asio::cancellation_signal server_cancel_;
@@ -248,13 +282,14 @@ private:
     std::mutex mutex_;
     std::unordered_map<size_t, asio::cancellation_signal> client_cancel_;
 
-    std::unordered_map<Method, std::unordered_map<std::string, HandlerAsync> > routes_;
+    std::unordered_map<Method,
+        std::unordered_map<std::string, HandlerAsync>> routes_;
 
-    // Serve Static
+    /// Static file mounts
     std::map<std::string, fs::path, PrefixComparator> static_mounts_;
 
+    /// WebSocket routes
     std::unordered_map<std::string, WsHandlers> ws_routes_;
 };
 
-
-#endif //ASIO_CANCEL_SERVER_H
+#endif // ASIO_CANCEL_SERVER_H
