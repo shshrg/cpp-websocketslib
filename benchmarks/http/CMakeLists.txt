@@ -38,3 +38,8 @@ target_include_directories(bench_httplib PRIVATE
 set_target_properties(bench_httplib PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )
+
+if (WIN32)
+    target_link_libraries(bench_httplib PRIVATE ws2_32)
+    target_compile_definitions(bench_httplib PRIVATE _WIN32_WINNT=0x0A00)
+endif()

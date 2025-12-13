@@ -61,6 +61,7 @@ int main(int argc, char* argv[]) {
                 std::string path = line.substr(4);
                 std::cout << "[CLIENT] GET " << path << " response:\n"
                           << client.get(path) << "\n";
+                client.stopped = false;
             }
 
             // POST
@@ -81,6 +82,7 @@ int main(int argc, char* argv[]) {
 
                 std::cout << "[CLIENT] POST " << path << " response:\n"
                           << client.post(path, body) << "\n";
+                client.stopped = false;
             }
 
             else if (line == "quit") {

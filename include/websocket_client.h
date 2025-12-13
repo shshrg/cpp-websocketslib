@@ -33,6 +33,7 @@ public:
     void send_text(const std::string& msg);
     void receive_loop();
     std::atomic<bool> stopped;
+    WsInFrame read_frame();
 
 private:
     asio::io_context internal_io_;
@@ -49,7 +50,6 @@ private:
     std::string read_http_headers();
     void make_frame_text(const std::string& msg, std::vector<uint8_t>& out);
 
-    WsInFrame read_frame();
     // void show_jpeg_frame(const uint8_t* data, size_t size);
     WsMessage read_message();
 

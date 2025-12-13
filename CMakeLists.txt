@@ -13,6 +13,7 @@ option(BUILD_EXAMPLES_SERVER "Build HTTP/WS server examples" ON)
 option(BUILD_EXAMPLES_CLIENT "Build HTTP/WS client examples" ON)
 option(BUILD_BENCHMARKS "Build benchmark executables" OFF)
 option(BUILD_BENCHMARKS_WS "Build WebSocket benchmarks" OFF)
+option(ENABLE_TESTS "Build and run unit tests" ON)
 
 include(FetchContent)
 
@@ -109,4 +110,8 @@ endif()
 
 if (BUILD_BENCHMARKS_WS)
     add_subdirectory(benchmarks/ws)
+endif()
+
+if (ENABLE_TESTS)
+    add_subdirectory(tests)
 endif()
