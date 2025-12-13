@@ -53,7 +53,7 @@ int main() {
         // std::cout << "[myserver] cwd=" << std::filesystem::current_path() << "\n";
 
 
-        asio::ip::address address = asio::ip::make_address("0.0.0.0");
+        asio::ip::address address = asio::ip::make_address("127.0.0.1");
         unsigned short port = 9001;
         bool use_ssl = false;
 

@@ -186,7 +186,6 @@ private:
         const std::string &path,
         std::uintmax_t size
     );
-    template<typename Socket>
 #endif
 
 #ifdef _WIN32
@@ -198,6 +197,7 @@ private:
     );
 #endif
 
+    template<typename Socket>
     asio::awaitable<void> write_regular_response(
         Socket &socket,
         Response &response,
